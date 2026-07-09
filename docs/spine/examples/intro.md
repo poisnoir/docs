@@ -9,114 +9,165 @@ import TabItem from '@theme/TabItem';
 
 # Examples
 
-Code snippets demonstrating common Spine patterns across Go, Python, and C++.
+These are drawn directly from the working example programs in `spine-go/example/`, plus the one real Python consumer of `spine_py`. If you copy-paste from this page, it should actually run against a checked-out `spine-go` and (optionally) a running `spined`.
 
-## Basic pub/sub
+## Publisher / Subscriber
 
 <Tabs>
-  <TabItem value="go" label="Go" default>
+  <TabItem value="go-pub" label="Go — publisher" default>
   ```go
-  node := spine.NewNode("publisher")
+  package main
 
-  node.Subscribe("sensor/data", func(msg spine.Msg) {
-      fmt.Println("received:", string(msg.Payload))
-  })
+  import (
+      "context"
+      "log/slog"
+      "os"
+      "time"
 
-  node.Publish("sensor/data", []byte("hello"))
-  node.Start()
+      "github.com/poisnoir/spine-go"
+  )
+
+  func main() {
+      logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+      ctx := context.Background()
+      node, _ := spine.CreateNode("common", "publisher_sample", ctx, logger)
+
+      pub, _ := spine.NewPublisher[uint32](node, "temperature")
+
+      var temp uint32 = 0
+      for {
+          pub.Publish(temp)
+          temp++
+          time.Sleep(15 * time.Millisecond)
+      }
+  }
   ```
   </TabItem>
-  <TabItem value="py" label="Python">
+  <TabItem value="go-sub" label="Go — subscriber">
+  ```go
+  package main
+
+  import (
+      "context"
+      "fmt"
+      "log/slog"
+      "os"
+
+      "github.com/poisnoir/spine-go"
+  )
+
+  func main() {
+      logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+      ctx := context.Background()
+      node, _ := spine.CreateNode("common", "subscriber_sample", ctx, logger)
+
+      sub, _ := spine.NewSubscriber[uint32](node, "temperature")
+
+      for {
+          fmt.Println(sub.Get())
+      }
+  }
+  ```
+  </TabItem>
+  <TabItem value="py" label="Python (spine_py)">
   ```python
-  node = Node("publisher")
+  from spine import Namespace, Publisher
+  from mad import MadType
 
-  @node.subscribe("sensor/data")
-  def handle(msg):
-      print("received:", msg.payload)
-
-  node.publish("sensor/data", b"hello")
-  node.start()
-  ```
-  </TabItem>
-  <TabItem value="cpp" label="C++">
-  ```cpp
-  spine::Node node("publisher");
-
-  node.subscribe("sensor/data", [](const spine::Msg& msg) {
-      std::cout << "received: " << msg.payload << std::endl;
-  });
-
-  node.publish("sensor/data", "hello");
-  node.start();
+  ns = Namespace("common", "")
+  pub = Publisher(ns, "temperature", MadType.float32)
+  pub.publish(37.0)
   ```
   </TabItem>
 </Tabs>
 
-## RPC service call
+## Service / ServiceCaller
 
 <Tabs>
-  <TabItem value="go" label="Go" default>
+  <TabItem value="go-service" label="Go — service" default>
   ```go
-  // Server node
-  server := spine.NewNode("arm-controller")
-  server.Handle("arm/move", func(req spine.Msg) spine.Msg {
-      target := parseTarget(req.Payload)
-      angles := kinematics.Solve(target)
-      return spine.Msg{Payload: mad.Encode(angles)}
-  })
-  server.Start()
+  package main
 
-  // Client node
-  client := spine.NewNode("ui")
-  resp, err := client.Call("arm/move", mad.Encode(target))
+  import (
+      "context"
+      "log/slog"
+      "os"
+
+      "github.com/poisnoir/spine-go"
+  )
+
+  func main() {
+      logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+      ctx := context.Background()
+      node, _ := spine.CreateNode("common", "subscriber_sample", ctx, logger)
+
+      lenFunc := func(i uint32) (uint32, error) {
+          return i * 2, nil
+      }
+      _, _ = spine.NewService(node, "string_length", lenFunc)
+
+      select {} // block forever
+  }
   ```
   </TabItem>
-  <TabItem value="py" label="Python">
-  ```python
-  # Server node
-  server = Node("arm-controller")
+  <TabItem value="go-caller" label="Go — caller">
+  ```go
+  package main
 
-  @server.handle("arm/move")
-  def move(req):
-      angles = kinematics.solve(req.payload)
-      return angles
+  import (
+      "context"
+      "fmt"
+      "log/slog"
+      "os"
 
-  # Client node
-  client = Node("ui")
-  resp = client.call("arm/move", target)
+      "github.com/poisnoir/spine-go"
+  )
+
+  func main() {
+      logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+      ctx := context.Background()
+      node, _ := spine.CreateNode("common", "service_caller_sample", ctx, logger)
+
+      c, _ := spine.NewServiceCaller[string, string](node, "print")
+      result, _ := c.Call("hello world", ctx)
+      fmt.Println(result)
+  }
   ```
   </TabItem>
 </Tabs>
 
-## Multi-node with mDNS discovery
+## A real cross-language node: kinematics-engine
 
-Nodes discover each other automatically — no IP addresses or config files needed.
+`kinematics-engine` (Python) is the one place in this codebase where a non-Go node actually wires into Spine. It subscribes to an operator-input displacement, runs it through forward/inverse kinematics, and publishes the resulting joint angles — a `Subscriber` and a `Publisher` on either end of a plain computation, no RPC involved:
 
-```go
-// Run these on any machines on the same network
-nodeA := spine.NewNode("purifier")
-nodeB := spine.NewNode("controller")
+```python
+from spine import Publisher, Subscriber
+from mad import MadType
+from kinematics import forward_kinematics, inverse_kinematics
+import numpy as np
 
-// nodeB will discover nodeA automatically via mDNS
-nodeB.Subscribe("input/clean", func(msg spine.Msg) {
-    // handle filtered input from purifier
-})
+class Robot:
+    def __init__(self, name, input_source: Subscriber, output_source: Publisher):
+        self.name = name
+        self.input_source = input_source
+        self.output_source = output_source
+        self.current_joints = np.zeros(6, dtype=np.float64)
 
-nodeA.Start()
-nodeB.Start()
+    def run(self):
+        while True:
+            self.output_source.publish(tuple(self.current_joints))
+            displacement = np.array(self.input_source.get_data(), dtype=np.float64)
+            goal = forward_kinematics(self.current_joints) @ displacement
+            result = inverse_kinematics(goal, self.current_joints)
+            if result.success:
+                self.current_joints = result.q
 ```
 
-## Encrypted namespace
+See [Kinematics Engine](/docs/spine-nodes/kinematics-engine/intro) for the full picture, including the [MAD](/docs/spine/mad/intro) wire-format caveat that applies whenever a Python node talks to a Go one.
 
-Nodes sharing a namespace key communicate in an AES-GCM encrypted channel. Nodes without the key cannot read or publish to that namespace.
+## What's not real yet
 
-```go
-node := spine.NewNode("purifier",
-    spine.WithNamespace("surgical-session-001"),
-    spine.WithKey([]byte("32-byte-aes-key-goes-here-000000")),
-)
-node.Start()
-```
+Earlier drafts of this page showed mDNS-based multi-machine discovery and AES-GCM encrypted namespaces (`spine.WithNamespace(...)`, `spine.WithKey(...)`). Neither exists in the code — there is no cross-machine transport at all today (see [Spine Overview](/docs/spine/intro)), so those examples have been removed rather than left in as if they were runnable.
 
 ## See also
 

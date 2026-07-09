@@ -6,9 +6,9 @@ sidebar_position: 2
 
 # Architecture
 
-PreciCore is built as a graph of loosely coupled nodes connected by the Spine communication backbone. Each node has a single responsibility and communicates exclusively through typed pub/sub topics or RPC calls — no direct function calls between nodes.
+PreciCore is designed as a graph of loosely coupled nodes connected by Spine. Each node has a single responsibility and communicates exclusively through pub/sub or RPC — no direct function calls between nodes. This page describes the intended architecture from the team's Capstone Proposal and is explicit about which parts of it are verified working code today versus design intent for later phases.
 
-## Full system diagram
+## System diagram (as proposed)
 
 ```mermaid
 flowchart TD
@@ -19,65 +19,81 @@ flowchart TD
     end
 
     subgraph Filtering ["Signal Processing"]
-        PUR[Purifier\nKalman Filter]
+        PUR[Purifier<br/>Kalman Filter]
     end
 
-    subgraph Routing ["Spine Backbone\nKCP/UDP · mDNS · AES-GCM"]
-        S[(Spine)]
+    subgraph Routing ["Spine<br/>Unix domain sockets, local only"]
+        S[(Spine + spined)]
     end
 
     subgraph Control ["Control"]
-        KE[Kinematics Engine\nRCM · IK · Scaling]
+        KE[Kinematics Engine<br/>IK + motion scaling]
     end
 
     subgraph Simulation ["Simulation"]
-        CH[CrackHead\nMuJoCo]
+        CH[CrackHead<br/>MuJoCo]
     end
 
     subgraph Hardware ["Hardware"]
-        ARM[5-DOF Robotic Arm]
+        ARM[5–6 DOF Robotic Arm]
     end
 
-    KB -->|input/raw| S
-    XB -->|input/raw| S
-    IMU -->|input/raw| S
+    KB --> S
+    XB --> S
+    IMU --> S
 
-    S -->|input/raw| PUR
-    PUR -->|input/clean| S
+    S --> PUR
+    PUR --> S
 
-    S -->|input/clean| KE
-    KE -->|arm/target| S
+    S --> KE
+    KE --> S
 
-    S -->|arm/target| CH
-    S -->|arm/target| ARM
+    S --> CH
+    S --> ARM
 ```
 
-## Data flow
+A sixth piece sits outside this diagram: **Big-Boss**, a desktop application described in the proposal as the operator-facing orchestrator — it launches and manages the node graph, renders a live visualization of the arm and camera feed, and persists node output to a log store for replay. No implementation of Big-Boss was found in the codebase surveyed for this documentation; it's included here because it's part of the intended architecture, not because it's running code.
 
-| Step | Topic | Description |
-|------|-------|-------------|
-| 1. Operator input | `input/raw` | Raw axis values from keyboard, Xbox controller, or iPhone IMU |
-| 2. Tremor filtering | `input/raw` → `input/clean` | Purifier applies a Kalman filter to remove noise and tremor |
-| 3. Routing | — | Spine routes all messages over KCP/UDP with mDNS discovery |
-| 4. Inverse kinematics | `input/clean` → `arm/target` | Kinematics Engine computes joint angles with RCM constraint |
-| 5. Execution | `arm/target` | CrackHead validates in simulation; hardware arm executes in production |
+## What's verified working vs. proposed
+
+| Piece | Status |
+|---|---|
+| Spine (pub/sub + RPC over Unix domain sockets, local machine) | **Working** — see [Spine Overview](/docs/spine/intro) |
+| `spined` (local node/entity registry) | **Working**, but currently a bookkeeping layer only, not on the data path |
+| Kinematics Engine | **Real code exists** (Python, `roboticstoolbox` + numerical IK) — but see [Kinematics Engine](/docs/spine-nodes/kinematics-engine/intro) for how it differs from the C++/RCM description below |
+| Purifier, CrackHead, Input nodes (keyboard/Xbox/iPhone IMU), Big-Boss | **Not found in the codebase** — described here per the proposal, status is design/planned |
+| Cross-machine Spine (multiple physical machines) | **Not implemented** — no transport exists beyond local Unix sockets yet |
+
+## Data flow (as designed)
+
+| Step | Description |
+|------|-------------|
+| 1. Operator input | Xbox controller / keyboard (bench validation) or iPhone IMU (wrist-motion capture) publishes a raw 4×4 delta transform |
+| 2. Tremor filtering | Purifier applies the Kalman filter described in [Purifier](/docs/spine-nodes/purifier/intro) to remove physiological tremor before any downstream computation |
+| 3. Routing | Spine delivers the message locally over a Unix domain socket — see [Spine Overview](/docs/spine/intro) for what "routing" does and doesn't mean today |
+| 4. Inverse kinematics | Kinematics Engine composes the filtered transform against the arm's current endpoint and solves for joint angles — see [Kinematics Engine](/docs/spine-nodes/kinematics-engine/intro) for the actual solver in use |
+| 5. Execution | Joint angles, together with an independently streaming Camera feed, drive CrackHead (simulation) and, eventually, the physical arm |
+
+The proposal's stated architectural property here is that CrackHead and the physical arm are meant to be indistinguishable from upstream nodes' point of view — same Spine topics, same message shapes — so control/vision/input development isn't blocked on hardware availability. That property depends on CrackHead actually existing and publishing through Spine with the same schema as the real hardware driver; neither piece was found in the codebase, so this is a design goal to validate once they're built, not something to assume is already true.
 
 ## Design principles
 
-**Everything is a node.** Input devices, filters, simulators, and hardware drivers are all Spine nodes. Adding a new capability means writing a new node — not modifying existing ones.
+**Everything is a node.** Input devices, filters, simulators, and hardware drivers are all meant to be Spine nodes, decoupled from each other.
 
-**Topics are the contract.** Nodes are decoupled from each other. The only shared interface is the topic name and message type. A new input device only needs to publish `input/raw` in the correct format to integrate into the pipeline.
+**Namespaces isolate subsystems, in principle.** The proposal describes using Spine namespaces to isolate logical subsystems (control, vision, simulation) sharing a machine or network. In the current implementation, `spined` only supports a single namespace (`"common"`), so this isolation isn't available yet — see [Spine Overview](/docs/spine/intro).
 
-**Simulation is mandatory.** CrackHead is not optional in the development workflow. Every trajectory is validated on the virtual phantom cornea before any command reaches real hardware.
+**Simulation-first development.** CrackHead is intended to be mandatory in the development workflow — every trajectory validated in simulation before it reaches real hardware. This is a process goal; it doesn't yet have simulator code behind it in this codebase.
 
-**No centralised orchestrator.** Spine uses mDNS for zero-config discovery. There is no master node, no launch file, and no manual IP configuration.
+**No centralized orchestrator, today, by omission rather than design.** There's no discovery protocol and no launch file because there's no cross-machine transport yet, not because a zero-config discovery mechanism (like mDNS) has been built. On a single machine, nodes find each other via well-known, hardcoded Unix socket paths.
 
 ## Component summary
 
-| Component | Language | Role |
-|-----------|----------|------|
-| [Spine](/docs/spine/intro) | Go / Python / C++ | Communication backbone |
-| [Purifier](/docs/spine-nodes/purifier/intro) | Go | Kalman filter on `input/raw` |
-| [Kinematics Engine](/docs/spine-nodes/kinematics-engine/intro) | C++ | Inverse kinematics + RCM |
-| [CrackHead](/docs/spine-nodes/crack-head/intro) | C++ / MuJoCo | Physics simulation |
-| [Input nodes](/docs/spine-nodes/input/intro) | Go | Keyboard, Xbox, iPhone IMU |
+| Component | Language (real) | Role |
+|-----------|------------------|------|
+| [Spine](/docs/spine/intro) | Go (primary), Python (real, different architecture), Zig (early) | Communication layer |
+| [Kinematics Engine](/docs/spine-nodes/kinematics-engine/intro) | Python | Forward/inverse kinematics for a 6-joint arm |
+| [Purifier](/docs/spine-nodes/purifier/intro) | — (planned) | Kalman filter on raw operator input |
+| [CrackHead](/docs/spine-nodes/crack-head/intro) | — (planned, MuJoCo-based) | Physics simulation |
+| [Input nodes](/docs/spine-nodes/input/intro) | — (planned) | Keyboard, Xbox, iPhone IMU |
+
+Note on degrees of freedom: the proposal describes the arm as both "5-DOF" (Embedded Hardware Layer, RCM sections) and "6-DOF" (CrackHead section) in different places. The actual `kinematics-engine` code defines a 6-joint `DHRobot` chain against a URDF named `arctos.urdf`. Which figure is authoritative for the physical build is a hardware-team question, not something this documentation can resolve from software alone.

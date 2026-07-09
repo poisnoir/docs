@@ -6,124 +6,84 @@ sidebar_position: 91
 
 # Troubleshooting
 
-Common issues and how to fix them.
+Common issues, and how to fix them, drawn from actually reading and running the current `spine-go`/`spined` code — not a generic ROS-style troubleshooting list.
 
 ---
 
-## Nodes can't discover each other
+## `CreateNode` succeeds but every subsequent `NewService`/`NewPublisher`/etc. fails
 
-**Symptom:** Two nodes are running on the same machine or LAN but neither receives messages from the other. No connection errors — just silence.
+**Symptom:** `spine.CreateNode(namespace, name, ctx, logger)` returns no error, but the first `NewService`/`NewPublisher`/`NewServiceCaller`/`NewSubscriber` call afterward fails.
 
-**Cause:** mDNS requires multicast UDP packets to reach all nodes. This is blocked in several common configurations:
+**Cause:** `spined` only ever creates one namespace, `"common"`, at boot. `CreateNode` doesn't check the registration status byte it gets back from `spined`, so registering under any other namespace name fails *silently* at that point — `spined` rejects it and closes the connection server-side, but your process doesn't find out until the next thing tries to use that (now-dead) connection to register an entity.
 
-- **Docker / WSL2** — the virtual network interface doesn't forward multicast by default
-- **VPN** — most VPN clients suppress multicast
-- **Multiple network interfaces** — Spine may bind to the wrong interface
-- **Firewall** — UDP 5353 (mDNS) and the Spine port are blocked
-
-**Fix:**
-
-1. Confirm both nodes are on the same physical network segment (same Wi-Fi, same LAN)
-2. Temporarily disable VPN and retest
-3. On Linux, check which interface multicast traffic uses: `ip route show | grep 224.0.0.0`
-4. Run both nodes on the same host first to isolate network vs. discovery issues
+**Fix:** Use `"common"` as the namespace until namespace creation is exposed. If you need genuine isolation between subsystems today, it isn't available at the `spined` level yet — namespace creation is on the roadmap, not implemented.
 
 ---
 
-## AES decryption failure / "namespace key mismatch"
+## Entities linger after you thought you closed them
 
-**Symptom:** A node connects but messages are dropped or logged as invalid. You see errors like `cipher: message authentication failed` or similar.
+**Symptom:** You call `Service.Close()`, `Publisher.Close()`, `Subscriber.Close()`, or `ServiceCaller.Close()`, but the entity still shows up as registered against `spined` (or a new attempt to register the same name still fails as "already registered").
 
-**Cause:** Two nodes are using different namespace keys. All nodes in a namespace must share the same AES-256 key.
+**Cause:** None of the `Close()` methods notify `spined`. They only tear down the local listener/connection and cancel local goroutines. `spined` only removes an entity when the *entire node's* connection to it drops.
 
-**Fix:**
-
-1. Confirm both nodes are started with the same `--namespace-key` flag (or equivalent config)
-2. Keys are case-sensitive byte strings — a trailing space or newline will produce a different key
-3. If keys are loaded from environment variables, confirm the variable is set identically in both shells
+**Fix:** For now, the entity is effectively pinned to the node's lifetime — don't rely on being able to re-register the same entity name from the same node without a full restart. If this is blocking you, it's a known, real gap, not a configuration issue on your end.
 
 ---
 
-## CrackHead crashes on startup
+## Publisher/Subscriber or Service/ServiceCaller never connects
 
-**Symptom:** `crack-head` exits immediately, often with `Failed to load model` or a segmentation fault.
+**Symptom:** A `Subscriber` or `ServiceCaller` retries forever (visible via its backoff logging) and never gets data.
 
-**Cause:** MuJoCo cannot find the scene XML file, or the MuJoCo library is not on the linker path.
+**Cause:** There's no discovery here — a `Subscriber`/`ServiceCaller` dials a deterministic Unix socket path (`/tmp/spine/publisher/<namespace>/<name>` or `/tmp/spine/service/<namespace>/<name>`) that only exists once the matching `Publisher`/`Service` has actually created it. Common reasons it never appears:
 
-**Fix:**
+1. The publisher/service process hasn't started yet, or crashed on startup — check its logs.
+2. Namespace mismatch — a subscriber in `"common"` will never see a publisher that (silently) failed to register under a different namespace (see the first entry on this page).
+3. `/tmp/spine/` was cleaned up by something else (e.g. a reboot, or another process removing stale sockets) while a listener still thought it owned a now-missing directory.
 
-1. Confirm `MUJOCO_PATH` points to your MuJoCo install directory (the one containing `lib/` and `include/`)
-2. Confirm the scene file path is correct — by default CrackHead looks for `scenes/phantom_cornea.xml` relative to the working directory
-3. On Linux, run `ldd ./build/crack-head | grep mujoco` to check the library is linked correctly
-4. On macOS, ensure MuJoCo is not quarantined: `xattr -dr com.apple.quarantine /path/to/mujoco`
-
----
-
-## High latency or jitter in arm response
-
-**Symptom:** The arm responds to input but with noticeable delay or stuttering.
-
-**Cause:** Several possible sources:
-
-- Purifier's Kalman filter `process_noise` is too high, causing over-smoothing
-- KCP retransmission is firing due to packet loss
-- The Kinematics Engine is running on an overloaded CPU
-
-**Fix:**
-
-1. Check packet loss on the link: `ping -c 100 <node-host>` — any loss > 0.5% will cause KCP retransmits
-2. Lower `process_noise` in the Purifier config to reduce smoothing lag
-3. Run the Kinematics Engine on a dedicated core: `taskset -c 2 ./kinematics-engine` (Linux)
-4. Confirm that CrackHead and the Kinematics Engine are not on the same CPU core as the Spine message loop
+**Fix:** Confirm both processes are using the same namespace string, and check that the socket path actually exists on disk (`ls /tmp/spine/publisher/common/` or `.../service/common/`) while the publisher/service is running.
 
 ---
 
-## Keyboard node not responding
+## Connection succeeds but immediately closes, "service data type is different"
 
-**Symptom:** The keyboard node is running but pressing keys has no effect.
+**Symptom:** A `ServiceCaller`/`Subscriber` connects, then the connection is torn down with a type-mismatch error.
 
-**Cause:** The terminal running the keyboard node does not have keyboard focus, or the node is not publishing to the topic the rest of the pipeline subscribes to.
+**Cause:** On connect, both sides exchange their MAD `Code()` for the key and value types and reject the connection if they don't match exactly (see [MAD](/docs/spine/mad/intro)). This fires whenever the generic type parameters on either end don't describe identical shapes — including field order changes that *shouldn't* matter (MAD sorts struct fields alphabetically before computing the code, so declaration-order differences are fine) but genuine type differences (a `uint32` on one side vs `int32` on the other, an extra field) will trip it.
 
-**Fix:**
-
-1. Click on the terminal window running the keyboard node to give it focus — key events are captured from the focused terminal
-2. Confirm the node is publishing to `input/raw` (check with a debug subscriber)
-3. Confirm Purifier is subscribed to `input/raw` and publishing `input/clean`
+**Fix:** Double check the exact generic type parameters passed to `NewService[K,V]`/`NewServiceCaller[K,V]` (or `NewPublisher[K]`/`NewSubscriber[K]`) match on both ends.
 
 ---
 
-## iPhone IMU node: no data received
+## Error messages from a failed service call are empty
 
-**Symptom:** The iPhone IMU node is running but `input/raw` receives no messages.
+**Symptom:** A `ServiceCaller.Call()` returns an error like `call error: status 252`, with no human-readable message.
 
-**Cause:** The iPhone and the computer running the IMU node are on different network segments, or the UDP port is firewalled.
+**Cause:** This is by design given MAD's current fixed-size-only encoding — the service side can't encode a variable-length string back to the caller, so it only ever sends a status byte. The status codes are in `internal/globals`; `252` is `ERROR_SERVICE_ERROR_CODE` (your handler returned an `error`), `251` is a decode failure, etc.
 
-**Fix:**
-
-1. Confirm the iPhone and the computer are on the **same Wi-Fi network** — the IMU streams over Wi-Fi/UDP
-2. Check if a firewall is blocking the UDP port used by the IMU node (default: see the repo README)
-3. Confirm the iPhone app has permission to access the local network (iOS 14+: Settings → Privacy → Local Network)
+**Fix:** Look at the *service's* logs (via its `slog.Logger`) for the actual error text — it's logged server-side even though it can't be transmitted back to the caller today.
 
 ---
 
-## Build errors with spine-cpp
+## Cross-language (Python) node can't talk to a Go node
 
-**Symptom:** CMake configure or build fails with missing headers or linker errors.
+**Symptom:** A `spine_py` node and a `spine-go` node using what looks like "the same" message type don't interoperate — decoding fails or produces garbage.
 
-**Cause:** The C++ toolchain does not meet the requirements, or the Spine library path is not set.
+**Cause:** The Python `mad` package (installed alongside `spine_py`) is a different, older implementation than `mad-go`/`mad.zig` — it still supports strings and dicts, using a completely different wire-code scheme. There's no guarantee the two sides agree on bytes for a type that looks identical on paper. See [MAD](/docs/spine/mad/intro).
 
-**Fix:**
+**Fix:** Until this is reconciled, only rely on cross-language interop for primitive/fixed-array-only message types, and verify byte-for-byte compatibility yourself rather than assuming it.
 
-1. Confirm you have a C++17-capable compiler: `g++ --version` should show GCC 9+ or Clang 10+
-2. Run CMake with the explicit path: `cmake -B build -DSPINE_ROOT=/path/to/spine-cpp`
-3. On macOS with Apple Silicon, ensure you are building for `arm64`: `cmake -B build -DCMAKE_OSX_ARCHITECTURES=arm64`
+---
+
+## `zig build test` reports success but nothing seems to have run
+
+**Symptom:** `zig build test` in `spined` exits 0 with no visible test output.
+
+**Cause:** This was a real, since-fixed bug: `spined`'s `src/root.zig` was an empty file, so the "spined" module's test target had nothing to analyze and silently ran ~0 tests, despite `src/mad.zig` containing dozens of unit tests. `root.zig` now re-exports the daemon's internals and forces them into the test build via `std.testing.refAllDecls`, so `zig build test` genuinely exercises `mad.zig`'s test suite.
+
+**Fix:** If you see this again (e.g. after adding a new file that isn't reachable from `root.zig`), check that the new file is actually imported/referenced somewhere `root.zig` can see, not just used internally by `server.zig`.
 
 ---
 
 ## Still stuck?
 
-Open an issue on the relevant GitHub repository:
-
-- [spine-go](https://github.com/poisnoir/spine-go)
-- [crack-head-cpp](https://github.com/poisnoir/crack-head-cpp)
-- [kinematics-engine](https://github.com/poisnoir/kinematics-engine)
+There's no public issue tracker referenced in this documentation — check with the team member who owns the piece you're working on (see the Capstone Proposal's team/role table) before assuming a symptom is a bug rather than a documented gap above.

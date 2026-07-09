@@ -6,34 +6,13 @@ sidebar_position: 1
 
 # Keyboard
 
-The Keyboard node provides basic keyboard-based control of the PreciCore system. Primarily used during development and testing for quick input without requiring physical controllers.
+**Status: not found in the codebase surveyed for this documentation.** A keyboard input path is a natural development/testing convenience for exercising the pipeline without physical controller hardware, but it isn't part of the Capstone Proposal's phased input roadmap (Xbox Controller → iPhone IMU → Quest 3 hand tracking → custom haptic controller — see [Input](/docs/spine-nodes/input/intro)), and no implementation of it exists in this codebase.
 
-## Key mappings
+## What it would need to produce
 
-| Key | Action |
-|-----|--------|
-| `W` / `S` | Move Y axis (forward / back) |
-| `A` / `D` | Move X axis (left / right) |
-| `Q` / `E` | Move Z axis (up / down) |
-| `I` / `K` | Pitch |
-| `J` / `L` | Yaw |
-| `Space` | Reset position |
-| `Esc` | Emergency stop |
-
-## Published topics
-
-| Topic | Type | Description |
-|-------|------|-------------|
-| `input/raw` | `ControlMsg` | Axis values derived from key state |
-
-Keys map to discrete axis values (−1.0, 0.0, or 1.0). The signal passes through Purifier the same as any other input device.
-
-## Links
-
-- [GitHub](https://github.com/poisnoir/keyboard)
+Per the proposal's architecture, every input node publishes a raw 4×4 delta transform, cleaned downstream by [Purifier](/docs/spine-nodes/purifier/intro) before reaching [Kinematics Engine](/docs/spine-nodes/kinematics-engine/intro). No specific key mapping or axis discretization scheme has been implemented or specified.
 
 ## See also
 
-- [Input Overview](/docs/spine-nodes/input/intro) — all supported input devices
-- [Purifier](/docs/spine-nodes/purifier/intro) — downstream filter for `input/raw`
-- [Xbox Controller](/docs/spine-nodes/input/xbox-controller/intro) — analog alternative for more precise testing
+- [Input Overview](/docs/spine-nodes/input/intro) — the full roadmap and its status
+- [Xbox Controller](/docs/spine-nodes/input/xbox-controller/intro) — the proposal's actual Phase 1 baseline device

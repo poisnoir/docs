@@ -6,43 +6,18 @@ sidebar_position: 1
 
 # iPhone IMU
 
-The iPhone IMU node captures wrist motion data from an iPhone's built-in inertial measurement unit (IMU) and streams it to the Spine network. This enables natural, gesture-based control of the robotic arm — the surgeon moves their wrist and the robot follows.
+**Status: not found in the codebase surveyed for this documentation.** The proposal describes wrist motion captured via an iPhone's onboard inertial measurement unit, streamed over Spine as a Phase 1–2 input node — a closer approximation of natural surgical hand motion than a joystick, developed in parallel with the [Xbox Controller](/docs/spine-nodes/input/xbox-controller/intro) path as a direct comparison point. No code implementing this exists in this codebase yet.
 
-## Why IMU-based control?
+## Why IMU-based control (per the proposal)
 
-Joystick input requires the operator to learn an unintuitive mapping between stick movements and robot motion. IMU-based wrist control is more natural and closer to how a surgeon actually moves during a procedure — making it a better approximation of real surgical input.
+Joystick input requires learning an abstract mapping between stick movement and robot motion. Wrist-worn IMU capture is intended to be closer to how a surgeon actually moves during a procedure, and is explicitly framed as a stepping stone toward the Phase 3 custom haptic controller — a way to compare input modalities before committing to bespoke hardware.
 
-## Data captured
+## What it would need to produce
 
-| Sensor | Data | Rate |
-|--------|------|------|
-| Accelerometer | X, Y, Z acceleration (m/s²) | 100 Hz |
-| Gyroscope | Roll, pitch, yaw rate (rad/s) | 100 Hz |
-
-## Signal flow
-
-```
-iPhone IMU → Wi-Fi/UDP → spine-node/input/imu → input/raw (Spine)
-                                                        ↓
-                                                   Purifier
-                                                        ↓
-                                                  input/clean
-                                                        ↓
-                                             Kinematics Engine
-```
-
-## Published topics
-
-| Topic | Type | Description |
-|-------|------|-------------|
-| `input/raw` | `IMUMsg` | Fused accelerometer + gyroscope reading |
-
-## Links
-
-- [GitHub](https://github.com/poisnoir/iphone-imu)
+Per the proposal's architecture, every input node publishes a raw 4×4 delta transform, cleaned downstream by [Purifier](/docs/spine-nodes/purifier/intro) before reaching [Kinematics Engine](/docs/spine-nodes/kinematics-engine/intro). No specific sensor fusion approach, sample rate, or transport (Wi-Fi, Bluetooth, or otherwise) has been implemented or specified beyond that.
 
 ## See also
 
-- [Input Overview](/docs/spine-nodes/input/intro) — all supported input devices
-- [Purifier](/docs/spine-nodes/purifier/intro) — Kalman filter applied to the raw IMU stream
-- [Kinematics Engine](/docs/spine-nodes/kinematics-engine/intro) — converts clean motion into joint angles
+- [Input Overview](/docs/spine-nodes/input/intro) — the full roadmap and its status
+- [Purifier](/docs/spine-nodes/purifier/intro) — the proposed downstream filter
+- [Kinematics Engine](/docs/spine-nodes/kinematics-engine/intro) — the real node that would ultimately consume this

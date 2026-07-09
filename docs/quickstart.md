@@ -6,98 +6,112 @@ sidebar_position: 1
 
 # Quickstart
 
-Get the PreciCore stack running locally in a few minutes. This guide walks you through connecting a minimal Spine node, running CrackHead in simulation, and piping keyboard input through Purifier.
+Get a Spine publisher and subscriber talking to each other locally. This is the part of PreciCore that's actually implemented and runnable today — it doesn't cover Purifier, Kinematics Engine, or CrackHead as a connected pipeline, since those pieces aren't wired together as running nodes yet (see [Architecture](/docs/architecture) for what's real vs. planned).
 
 ## Prerequisites
 
-| Dependency | Version | Notes |
-|------------|---------|-------|
-| Go | 1.21+ | For spine-go and kinematics-engine |
-| Python | 3.10+ | Optional, for spine-py nodes |
-| MuJoCo | 3.x | Required for CrackHead simulation |
-| C++ toolchain | C++17 | Required for spine-cpp and crack-head-cpp |
+| Dependency | Notes |
+|------------|-------|
+| Go 1.24+ | For `spine-go` |
+| Zig 0.16 | Only needed if you're building `spined` from source |
 
-Install MuJoCo from the [official releases](https://github.com/google-deepmind/mujoco/releases). Set `MUJOCO_PATH` to your install directory.
+`spined` is optional for everything in this guide — Spine falls back to "local-only mode" automatically if it can't connect to the daemon. You'll only need it if you want a central place to see what's registered.
 
-## 1 — Run your first Spine node
+## 1 — (Optional) Start spined
 
-Install spine-go:
+```bash
+cd spined
+zig build run
+```
+
+This listens on a Unix domain socket at `/tmp/spine/spined`. If you skip this step, every `spine.CreateNode(...)` call below still works — it just logs a warning and proceeds without registering anywhere.
+
+## 2 — Install spine-go
 
 ```bash
 go get github.com/poisnoir/spine-go
 ```
 
-Create a file `main.go`:
+## 3 — Publisher
 
 ```go
 package main
 
-import "github.com/poisnoir/spine-go"
+import (
+	"context"
+	"log/slog"
+	"os"
+	"time"
+
+	"github.com/poisnoir/spine-go"
+)
 
 func main() {
-    node := spine.NewNode("my-node")
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	ctx := context.Background()
 
-    node.Subscribe("input/clean", func(msg spine.Msg) {
-        // handle incoming messages
-        _ = msg.Data
-    })
+	// "common" is the only namespace spined currently supports.
+	node, _ := spine.CreateNode("common", "publisher_sample", ctx, logger)
 
-    node.Publish("arm/target", []byte(`{"q":[0,0,0,0,0]}`))
+	pub, _ := spine.NewPublisher[uint32](node, "temperature")
 
-    node.Start() // blocks; discovers peers via mDNS
+	var temp uint32 = 0
+	for {
+		pub.Publish(temp)
+		temp++
+		time.Sleep(15 * time.Millisecond)
+	}
 }
 ```
-
-Run it:
 
 ```bash
 go run main.go
 ```
 
-The node will start and broadcast its presence on the local network via mDNS. Any other Spine node on the same network will discover it automatically.
+## 4 — Subscriber
 
-## 2 — Connect keyboard input
+In a second terminal:
 
-Clone and run the keyboard input node:
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"os"
+
+	"github.com/poisnoir/spine-go"
+)
+
+func main() {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	ctx := context.Background()
+
+	node, _ := spine.CreateNode("common", "subscriber_sample", ctx, logger)
+	sub, _ := spine.NewSubscriber[uint32](node, "temperature")
+
+	for {
+		fmt.Println(sub.Get())
+	}
+}
+```
 
 ```bash
-git clone https://github.com/poisnoir/keyboard
-cd keyboard
-go run .
+go run main.go
 ```
 
-The keyboard node publishes raw operator commands to `input/raw`. From there, Purifier picks them up and pushes filtered commands to `input/clean`.
+You should see the subscriber print an increasing number. There's no discovery step to wait on — the subscriber dials the publisher's Unix socket at a well-known path (`/tmp/spine/publisher/common/temperature`) the moment it's created, retrying with backoff until the publisher exists.
 
-Key controls: `W`/`S` (Y-axis), `A`/`D` (X-axis), `Q`/`E` (Z-axis), `Esc` (emergency stop).
+## What this doesn't cover
 
-See [Keyboard](/docs/spine-nodes/input/keyboard/intro) for the full key mapping.
-
-## 3 — Start CrackHead simulation
-
-Clone and build the simulator:
-
-```bash
-git clone https://github.com/poisnoir/crack-head-cpp
-cd crack-head-cpp
-cmake -B build && cmake --build build
-./build/crack-head
-```
-
-CrackHead will discover the other nodes via mDNS and begin subscribing to `arm/target`. The simulated arm will move in response to commands from the Kinematics Engine.
-
-## 4 — Full pipeline
-
-Once all nodes are running on the same network, the complete pipeline activates automatically:
-
-```
-Keyboard → input/raw → Purifier → input/clean → Kinematics Engine → arm/target → CrackHead
-```
-
-No manual wiring required — mDNS handles discovery, and AES-GCM encrypts all traffic within a namespace.
+- **Services/RPC** — see the [Examples](/docs/spine/examples/intro) page for a `NewService`/`NewServiceCaller` pair.
+- **Cross-machine setups** — not possible yet; see [Spine Overview](/docs/spine/intro).
+- **Namespaces other than `common`** — rejected by `spined` today; see [Troubleshooting](/docs/troubleshooting).
+- **Purifier / Kinematics Engine / CrackHead as a connected pipeline** — Kinematics Engine has real code ([details here](/docs/spine-nodes/kinematics-engine/intro)) but nothing in this codebase currently runs it end-to-end against a live input source and a live simulator.
 
 ## Next steps
 
-- [Architecture](/docs/architecture) — understand how all components fit together
-- [Spine](/docs/spine/intro) — learn the communication protocol
-- [Purifier](/docs/spine-nodes/purifier/intro) — configure tremor filtering
-- [Kinematics Engine](/docs/spine-nodes/kinematics-engine/intro) — tune motion scaling
+- [Architecture](/docs/architecture) — what's built vs. designed across the whole system
+- [Spine Overview](/docs/spine/intro) — the full picture of what Spine does and doesn't do today
+- [MAD](/docs/spine/mad/intro) — the serialization format underneath every message

@@ -6,112 +6,106 @@ sidebar_position: 90
 
 # Glossary
 
-Reference for terms used throughout the PreciCore documentation.
-
----
-
-### AES-GCM
-
-Advanced Encryption Standard in Galois/Counter Mode. A symmetric authenticated encryption algorithm. Spine uses AES-GCM to encrypt all messages within a named namespace — each namespace has a shared 256-bit key. Provides both confidentiality and integrity without a separate HMAC step.
+Reference for terms used throughout the PreciCore documentation. Where a term describes something aspirational rather than currently implemented, that's called out explicitly rather than left ambiguous.
 
 ---
 
 ### DOF (Degrees of Freedom)
 
-The number of independent axes along which a mechanical system can move. The PreciCore robotic arm has **5-DOF**: three translational (X, Y, Z) and two rotational (pitch, yaw). The RCM constraint effectively removes one degree of freedom during surgery, constraining the arm to pivot around the corneal entry point.
+The number of independent axes along which a mechanical system can move. The Capstone Proposal describes the PreciCore arm inconsistently across sections — "5-DOF" in the embedded hardware and RCM sections, "6-DOF" in the CrackHead section. The real `kinematics-engine` code defines a 6-joint `DHRobot` chain against a URDF named `arctos.urdf`. See [Architecture](/docs/architecture) for the note on this.
+
+---
+
+### Entity
+
+`spined`'s term for anything a node registers: a Service, Publisher, ServiceCaller, or Subscriber. Entities live as long as the node connection that registered them stays open — closing an entity object in application code (`Service.Close()`, etc.) does not currently tell `spined` to remove it; only a full node disconnect does. See [spine-go](/docs/spine/go/intro).
 
 ---
 
 ### IMU (Inertial Measurement Unit)
 
-A sensor that measures specific force (accelerometer) and angular rate (gyroscope). The PreciCore [iPhone IMU node](/docs/spine-nodes/input/iphone-imu/intro) captures 6-axis IMU data at 100 Hz and streams it over Wi-Fi/UDP into the Spine network as `input/raw` messages.
+A sensor that measures specific force (accelerometer) and angular rate (gyroscope). The Capstone Proposal describes an iPhone IMU node capturing wrist motion and streaming it into Spine as a pub/sub input source. No implementation of this node was found in the codebase surveyed for this documentation — see [iPhone IMU](/docs/spine-nodes/input/iphone-imu/intro).
 
 ---
 
 ### Inverse Kinematics (IK)
 
-The mathematical problem of computing joint angles that place a robotic end-effector (the needle tip) at a desired position and orientation in 3D space. Contrasted with *forward kinematics*, which computes position given joint angles. The [Kinematics Engine](/docs/spine-nodes/kinematics-engine/intro) solves IK in real time under the RCM constraint.
+The mathematical problem of computing joint angles that place a robotic end-effector (the needle tip) at a desired position and orientation in 3D space, as opposed to *forward kinematics*, which computes position given joint angles. [Kinematics Engine](/docs/spine-nodes/kinematics-engine/intro) solves this numerically today, using Levenberg-Marquardt (`ikine_LM` from `roboticstoolbox`) — not the RCM-constrained analytic solver described in the proposal.
 
 ---
 
 ### Kalman Filter
 
-A recursive algorithm that estimates the true state of a system from noisy measurements. Given a series of observations containing statistical noise, it produces estimates that tend to be more accurate than any single measurement alone. [Purifier](/docs/spine-nodes/purifier/intro) applies a Kalman filter to raw operator input to suppress hand tremor before commands reach the arm.
-
----
-
-### KCP
-
-KCP is a reliable transport protocol that runs over UDP. Unlike TCP, KCP is tuned for low latency by making retransmission and acknowledgement parameters configurable. Spine uses KCP to achieve TCP-like reliability with lower jitter — important for real-time surgical control.
+A recursive algorithm that estimates the true state of a system from noisy measurements, producing an estimate more accurate than any single measurement alone. The proposal's Purifier node is meant to apply one to raw operator input to suppress hand tremor; no Purifier implementation was found in the codebase surveyed for this documentation. See [Purifier](/docs/spine-nodes/purifier/intro).
 
 ---
 
 ### MAD (Serializer)
 
-PreciCore's custom binary serialization format used inside Spine messages. MAD encodes control structs into compact byte arrays for low-overhead transmission over KCP/UDP. See [MAD](/docs/spine/mad/intro).
-
----
-
-### mDNS (Multicast DNS)
-
-A protocol that resolves hostnames to IP addresses within a local network without a central DNS server. Spine uses mDNS so that nodes discover each other automatically — you run a node and it finds its peers on the LAN with no manual IP configuration.
+Spine's binary serialization format: a reflection-driven, fixed-size-only codec (no strings, slices, or maps in the Go/Zig implementations) with alphabetically-sorted struct fields and a type-fingerprint `Code()` used to validate that two ends of a connection agree on message shape. A separate, older Python implementation still supports variable-length types and uses a different wire-code scheme — the two are not currently interoperable. See [MAD](/docs/spine/mad/intro).
 
 ---
 
 ### MuJoCo
 
-Multi-Joint dynamics with Contact. An open-source physics engine developed by DeepMind, widely used in robotics research. [CrackHead](/docs/spine-nodes/crack-head/intro) uses MuJoCo to simulate the PreciCore robotic arm and the virtual phantom cornea with accurate rigid body dynamics and contact forces.
+Multi-Joint dynamics with Contact. An open-source physics engine developed by DeepMind, used in robotics research for its accurate contact dynamics. The proposal's CrackHead simulator is meant to be built on it; no CrackHead implementation was found in the codebase surveyed for this documentation. See [CrackHead](/docs/spine-nodes/crack-head/intro).
 
 ---
 
 ### Namespace
 
-A Spine concept that groups nodes into isolated communication channels. Messages published within a namespace are only visible to nodes in the same namespace. Each namespace can have its own AES-GCM encryption key, preventing cross-namespace eavesdropping even on the same network.
+A grouping concept in Spine/`spined` meant to isolate logical subsystems from each other. Today, `spined` only ever creates one namespace, `"common"`, at boot — there is no way yet to create additional ones, and namespaces carry no encryption or access control beyond that grouping. See [Spine Overview](/docs/spine/intro).
 
 ---
 
 ### Phantom Cornea
 
-A synthetic physical or simulated model of a human cornea used for testing and calibration. In PreciCore, the virtual phantom cornea inside CrackHead acts as the target tissue for simulated needle insertion — allowing needle trajectories to be validated before any contact with real biological tissue.
+A synthetic physical or simulated model of a human cornea used for testing and calibration, so that needle trajectories can be validated before any contact with real tissue. In the proposal, the simulated version is meant to live inside CrackHead; no CrackHead implementation exists in the codebase surveyed for this documentation.
 
 ---
 
 ### Pub/Sub (Publish/Subscribe)
 
-A messaging pattern where producers (*publishers*) emit messages to named *topics* and consumers (*subscribers*) receive messages from those topics, with no direct coupling between the two. Spine implements pub/sub as its primary communication pattern. See [Spine](/docs/spine/intro).
+A messaging pattern where publishers emit values under a name (a "topic," identified by namespace + entity name in Spine) and subscribers read the latest value, with no direct coupling between the two. This is real and working in `spine-go` today — see [Spine Overview](/docs/spine/intro).
 
 ---
 
 ### RCM (Remote Center of Motion)
 
-A kinematic constraint that forces the robotic arm to pivot around a fixed point in space — the entry point through the cornea. This allows the surgeon to reorient the needle tip without moving the incision site, which is critical for minimally invasive ophthalmic surgery. See [Kinematics Engine](/docs/spine-nodes/kinematics-engine/intro).
+A kinematic constraint that forces a robotic arm to pivot around a fixed point in space — here, the entry point through the cornea — so the tool can be reoriented without moving the incision site. Described in the proposal as enforced at the inverse-kinematics level; not present in the current `kinematics-engine` code, which uses generic joint-limit-constrained numerical IK without an explicit pivot constraint. See [Kinematics Engine](/docs/spine-nodes/kinematics-engine/intro).
 
 ---
 
 ### RPC (Remote Procedure Call)
 
-A communication pattern where a client sends a request to a named service and waits for a response. Spine supports RPC alongside pub/sub for request/response interactions — for example, querying a node's current configuration. See [Examples](/docs/spine/examples/intro).
+A pattern where a client sends a request to a named service and waits for a response. Spine supports this as `Service`/`ServiceCaller` (sequential) and `ThreadedService` (parallel) — real and working in `spine-go` today. See [Examples](/docs/spine/examples/intro).
 
 ---
 
 ### Spine
 
-PreciCore's custom robotics middleware. Provides pub/sub messaging and RPC over KCP/UDP, zero-config mDNS discovery, and AES-GCM encrypted namespaces. The lightweight alternative to ROS 2. See [Spine](/docs/spine/intro).
+PreciCore's communication layer: pub/sub and RPC over Unix domain sockets on the local machine, with a registry daemon (`spined`) for bookkeeping. Not what earlier drafts of this documentation described — there is no mDNS discovery, no AES-GCM encryption, and no KCP/UDP transport anywhere in the code. See [Spine Overview](/docs/spine/intro) for the accurate picture.
 
 ---
 
 ### Spine Node
 
-Any process that connects to the Spine network. A node can publish messages, subscribe to topics, and expose or call RPC services. The term refers both to the abstract concept and to the specific nodes in PreciCore's pipeline (keyboard, purifier, kinematics-engine, CrackHead).
+Any process that connects to Spine via `CreateNode`. A node can register Services, ServiceCallers, Publishers, and Subscribers. See [spine-go](/docs/spine/go/intro).
+
+---
+
+### spined
+
+The registry daemon for Spine, written in Zig. Lets nodes register themselves and their entities into a namespace so there's a central place to see what's running. Does **not** sit on the message data path today — publishers/subscribers and services/callers connect directly to each other over well-known Unix socket paths regardless of whether `spined` is running. See [Spine Overview](/docs/spine/intro).
 
 ---
 
 ### Tremor
 
-Involuntary rhythmic muscular oscillation. Physiological hand tremor in a surgeon's hands occurs at 8–12 Hz and can produce tip displacements of 50–100 µm — far exceeding the sub-millimetre precision required for corneal surgery. [Purifier](/docs/spine-nodes/purifier/intro) filters tremor from the `input/raw` stream before commands reach the arm.
+Involuntary rhythmic muscular oscillation. Physiological hand tremor in a surgeon's hands occurs at 8–12 Hz and can produce tip displacements of 50–100 µm — far exceeding the sub-millimetre precision corneal surgery requires. Filtering it out is Purifier's proposed job; see [Purifier](/docs/spine-nodes/purifier/intro) for its current (unimplemented) status.
 
 ---
 
-### UDP (User Datagram Protocol)
+### Unix Domain Socket
 
-A connectionless transport protocol. Unlike TCP, UDP does not guarantee delivery, ordering, or duplicate elimination — but it has much lower overhead and latency. Spine runs KCP on top of UDP to get configurable reliability without TCP's head-of-line blocking.
+An IPC mechanism for processes on the same machine to communicate via a filesystem path instead of a network address. This is Spine's actual transport today — every `Service`, `Publisher`, `ServiceCaller`, and `Subscriber` in `spine-go` connects over one. Access control is whatever the filesystem permissions on the socket path allow; there is no separate authentication or encryption layer on top. See [Spine Overview](/docs/spine/intro).

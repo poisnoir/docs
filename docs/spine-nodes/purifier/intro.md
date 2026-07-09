@@ -6,65 +6,39 @@ sidebar_position: 1
 
 # Purifier
 
-Purifier is PreciCore's signal processing node. It sits between raw operator input and the control system, applying a Kalman filter to convert noisy, tremor-affected movement into stable, clinically precise commands.
+**Status: not found in the codebase surveyed for this documentation.** Purifier is the proposal's name for the tremor-filtering stage between raw operator input and the control system. Everything below is the design as specified in the Capstone Proposal's Control System section — real design content, not fabricated — but there is no code implementing it yet, so treat this page as a spec to build against rather than a description of running behavior.
 
 ## Why filter input?
 
-Physiological hand tremor in a surgeon's hands oscillates at 8–12 Hz. In the context of corneal surgery — where tolerances are measured in micrometres — even small tremor causes tip displacements that exceed safe operating margins.
+Operator input is modeled as a true intended trajectory corrupted by additive, approximately zero-mean tremor noise — physiological tremor is well characterized in the literature as concentrated in the 8–12 Hz band. In corneal surgery, where tolerances are measured in micrometres, tremor-induced tip displacement can exceed the safe operating margin on its own.
 
-Purifier doesn't just smooth the signal. It estimates the *intended* position of the operator's hand and publishes that estimate, not the raw measurement. The result is that the robotic arm responds to deliberate movements while ignoring involuntary oscillation.
+## The designed filter
 
-## Signal flow
+A discrete-time Kalman filter is specified to produce a minimum-variance estimate of the intended trajectory from noisy position measurements. State vector `x_k = [position, velocity]ᵀ`:
+
+**Prediction:**
 
 ```
-input/raw  →  Kalman Filter  →  input/clean
+x̂ₖ|ₖ₋₁ = F x̂ₖ₋₁|ₖ₋₁
+Pₖ|ₖ₋₁ = F Pₖ₋₁|ₖ₋₁ Fᵀ + Q
 ```
 
-Purifier subscribes to `input/raw`, processes each message through the filter, and immediately publishes the filtered result to `input/clean`. The latency introduced is one tick of the filter loop — typically under 1 ms.
+**Update:**
 
-## How the Kalman filter works
-
-The filter maintains two state vectors:
-
-- **Predicted state** — where the operator's hand *should* be based on the previous position and a motion model
-- **Updated state** — the predicted state corrected by the new measurement
-
-At each step, the filter computes a **Kalman gain** that balances trust between the prediction and the measurement. When measurements are noisy (high measurement noise), the filter trusts the model more. When the model is uncertain (high process noise), it trusts measurements more.
-
-| Parameter | Effect of increasing | Effect of decreasing |
-|-----------|---------------------|---------------------|
-| `process_noise` | More responsive, less smoothing | More smoothing, more lag |
-| `measurement_noise` | Heavier filtering, more lag | Less filtering, noisier output |
-
-## Configuration
-
-Purifier is configured via environment variables or a YAML config file:
-
-```yaml
-purifier:
-  process_noise: 0.01      # motion model uncertainty
-  measurement_noise: 0.1   # sensor noise estimate
-  initial_state_covariance: 1.0
+```
+Kₖ = Pₖ|ₖ₋₁ Hᵀ (H Pₖ|ₖ₋₁ Hᵀ + R)⁻¹
+x̂ₖ|ₖ = x̂ₖ|ₖ₋₁ + Kₖ(zₖ − H x̂ₖ|ₖ₋₁)
 ```
 
-Start with the defaults. If the arm feels sluggish, lower `measurement_noise`. If it feels jittery, raise it.
+Where `F` is the constant-velocity transition model, `Q` the process noise covariance, `R` the measurement noise covariance (meant to be characterized empirically from baseline operator input), and `z_k` the raw measurement. `Q` and `R` are meant to be tuned against recorded operator input traces, with filter performance evaluated by residual high-frequency power in the 8–12 Hz band — i.e. the acceptance criterion is spectral, not just a qualitative "feels smoother."
 
-## Subscribed / published topics
+## What isn't specified yet
 
-| Direction | Topic | Type | Description |
-|-----------|-------|------|-------------|
-| Subscribes | `input/raw` | `ControlMsg` or `IMUMsg` | Raw operator commands from any input node |
-| Publishes | `input/clean` | `ControlMsg` | Filtered, tremor-reduced commands |
-
-Purifier accepts both `ControlMsg` (from keyboard/Xbox) and `IMUMsg` (from iPhone IMU) on `input/raw`. It normalises both into the same `ControlMsg` format before publishing.
-
-## Links
-
-- [GitHub](https://github.com/poisnoir/purifier)
+The proposal specifies the filter design above but not: the exact Spine message shape Purifier would subscribe to or publish, how it would be configured/tuned at runtime, or which upstream input source(s) it's meant to normalize across (keyboard, Xbox controller, and iPhone IMU are all described as separate input nodes in the proposal's roadmap — see [Input](/docs/spine-nodes/input/intro) — but nothing in this codebase shows how their outputs would be unified before reaching this filter).
 
 ## See also
 
-- [Input nodes](/docs/spine-nodes/input/intro) — upstream sources of `input/raw`
-- [Kinematics Engine](/docs/spine-nodes/kinematics-engine/intro) — downstream consumer of `input/clean`
-- [Glossary: Kalman Filter](/docs/glossary#kalman-filter) — conceptual explanation
-- [Glossary: Tremor](/docs/glossary#tremor) — why filtering is necessary
+- [Input nodes](/docs/spine-nodes/input/intro) — the proposed upstream sources
+- [Kinematics Engine](/docs/spine-nodes/kinematics-engine/intro) — the one real node in the pipeline, and the proposed downstream consumer of Purifier's output
+- [Glossary: Kalman Filter](/docs/glossary#kalman-filter)
+- [Glossary: Tremor](/docs/glossary#tremor)
