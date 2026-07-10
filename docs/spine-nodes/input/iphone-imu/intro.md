@@ -6,18 +6,32 @@ sidebar_position: 1
 
 # iPhone IMU
 
-**Status: not found in the codebase surveyed for this documentation.** The proposal describes wrist motion captured via an iPhone's onboard inertial measurement unit, streamed over Spine as a Phase 1–2 input node — a closer approximation of natural surgical hand motion than a joystick, developed in parallel with the [Xbox Controller](/docs/spine-nodes/input/xbox-controller/intro) path as a direct comparison point. No code implementing this exists in this codebase yet.
+**Status: real code, on Spine's older, retired transport.** Listens for UDP packets from an iPhone sensor-streaming app and publishes a `[4][4]float64` rotation-only delta transform.
 
-## Why IMU-based control (per the proposal)
+## What it actually does
 
-Joystick input requires learning an abstract mapping between stick movement and robot motion. Wrist-worn IMU capture is intended to be closer to how a surgeon actually moves during a procedure, and is explicitly framed as a stepping stone toward the Phase 3 custom haptic controller — a way to compare input modalities before committing to bespoke hardware.
+A UDP listener (`IphoneWorker`, bound to a hardcoded `172.20.10.3:<port>`) receives JSON packets shaped like:
 
-## What it would need to produce
+```go
+type IphoneOutput struct {
+    Seq                          int64
+    Roll, Pitch, Yaw             float64 // motion
+    QuatX, QuatY, QuatZ, QuatW   float64
+    Rot11..Rot33                 float64 // rotation matrix, row-major
+    GravityX/Y/Z, AccelX/Y/Z,
+    GyroX/Y/Z, MagX/Y/Z          float64
+    Latitude, Longitude          float64
+}
+```
 
-Per the proposal's architecture, every input node publishes a raw 4×4 delta transform, cleaned downstream by [Purifier](/docs/spine-nodes/purifier/intro) before reaching [Kinematics Engine](/docs/spine-nodes/kinematics-engine/intro). No specific sensor fusion approach, sample rate, or transport (Wi-Fi, Bluetooth, or otherwise) has been implemented or specified beyond that.
+— accelerometer, gyroscope, magnetometer, gravity vector, quaternion, rotation matrix, GPS, all provided directly by the phone's sensor-fusion, not computed here.
+
+Each loop iteration computes `CreateDelta`: the Euler-angle difference (yaw/roll/pitch) between the current and previous reading, with deltas under ~1° zeroed out as a noise floor, converted to a rotation matrix by direct trigonometric formula (not a library) and written into a `[4][4]float64` with **zero translation** — only the rotation block is populated, `result[3][3] = 1`, everything else in the translation column is `0`. The result is published as the delta transform; there's no accumulated absolute pose, no drift correction beyond that per-step noise gate, and no analytical Kalman filtering — this is what [Purifier](/docs/spine-nodes/purifier/intro) is meant to eventually replace.
+
+Connects via the same pre-redesign `spine.JointNamespace("rime", "ppap", logger)` API as the other input nodes, publishing under the default name `iphone_imu`. A separate `MemoryRecorder` buffers every raw reading and dumps it to a timestamped JSON file in `./runs/` on exit — useful for offline filter tuning, independent of whether Spine itself is even reachable.
 
 ## See also
 
-- [Input Overview](/docs/spine-nodes/input/intro) — the full roadmap and its status
-- [Purifier](/docs/spine-nodes/purifier/intro) — the proposed downstream filter
-- [Kinematics Engine](/docs/spine-nodes/kinematics-engine/intro) — the real node that would ultimately consume this
+- [Input Overview](/docs/spine-nodes/input/intro) — how this compares to the other two input nodes
+- [Keyboard](/docs/spine-nodes/input/keyboard/intro) — publishes the same `[4][4]float64` shape, computed differently
+- [Purifier](/docs/spine-nodes/purifier/intro) — the planned filter this node's crude noise gate is a placeholder for

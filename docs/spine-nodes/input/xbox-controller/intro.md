@@ -6,18 +6,27 @@ sidebar_position: 1
 
 # Xbox Controller
 
-**Status: not found in the codebase surveyed for this documentation.** The proposal names the Xbox controller as the Phase 1 baseline input device: well-documented, reliable analog input, and sufficient for validating motion scaling and tremor filtering in simulation before more specialized hardware is introduced. No code implementing this node exists in this codebase yet.
+**Status: real code, on Spine's older, retired transport — and the odd one out.** Reads a physical Xbox controller via Linux `evdev` and publishes its raw button/joystick state directly, unlike [Keyboard](/docs/spine-nodes/input/keyboard/intro) and [iPhone IMU](/docs/spine-nodes/input/iphone-imu/intro), which both publish a `[4][4]float64` delta transform.
 
-## Why Xbox first (per the proposal)
+## What it actually publishes
 
-The Xbox controller's role is explicitly to be a placeholder that de-risks the rest of the pipeline — it lets motion scaling and tremor filtering get validated against a well-understood, reliable analog input source before the team invests in the iPhone IMU path or a custom haptic controller. See [Input](/docs/spine-nodes/input/intro) for the full roadmap this fits into.
+```go
+type XboxController struct {
+    A, B, X, Y             bool
+    LB, RB                 bool
+    LT, RT                 int32
+    LeftStick, RightStick   Joystick // {X, Y int32}
+    LSB, RSB                bool
+    Up, Down, Left, Right   bool
+    Back, Start, Guide      bool
+}
+```
 
-## What it would need to produce
+The raw struct, updated in place from `evdev` button/axis events and republished on every event. There is no conversion from this into a `[4][4]float64` transform anywhere in the code found — whatever is meant to consume this either needs to accept this shape directly, or a conversion step needs to be written before this can feed the same downstream path as the other two input nodes.
 
-Per the proposal's architecture, every input node publishes a raw 4×4 delta transform, cleaned downstream by [Purifier](/docs/spine-nodes/purifier/intro) before reaching [Kinematics Engine](/docs/spine-nodes/kinematics-engine/intro). No specific field layout, axis mapping, or button scheme for an Xbox controller has been implemented or specified beyond that.
+Reads from a fixed device path (`-usb`, default `/dev/input/event19` — will need to match whatever `evdev` enumerates the controller as on a given machine) and connects via the same pre-redesign `spine.JointNamespace("rime", "ppap", logger)` API as the others.
 
 ## See also
 
-- [Input Overview](/docs/spine-nodes/input/intro) — the full roadmap and its status
-- [Purifier](/docs/spine-nodes/purifier/intro) — the proposed downstream filter
-- [Spine Overview](/docs/spine/intro) — the transport this would run over
+- [Input Overview](/docs/spine-nodes/input/intro) — the shape mismatch with the other two input nodes
+- [Keyboard](/docs/spine-nodes/input/keyboard/intro) / [iPhone IMU](/docs/spine-nodes/input/iphone-imu/intro) — both publish `[4][4]float64` instead

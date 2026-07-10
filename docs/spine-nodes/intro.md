@@ -6,26 +6,31 @@ sidebar_position: 1
 
 # Spine Nodes
 
-Spine Nodes are the individual modules the Capstone Proposal describes as making up the PreciCore pipeline — from physics simulation to operator input. This page is honest about which of them exist as code today versus which are design intent for later phases; see [Architecture](/docs/architecture) for the same distinction applied to the whole system.
+Spine Nodes are the individual modules that make up the PreciCore pipeline. They're at very different stages, and this page's job is to be honest about which: real code on the current transport, real code stuck on an older, retired transport, or design intent with no code yet. See [Architecture](/docs/architecture) for how they're meant to fit together.
 
 ## Nodes
 
 | Node | Description | Status |
 |------|-------------|--------|
-| [kinematics-engine](/docs/spine-nodes/kinematics-engine/intro) | Forward/inverse kinematics for a 6-joint arm | **Real code** (Python) — see the page for how it differs from the proposal's C++/RCM description |
-| [crack-head](/docs/spine-nodes/crack-head/intro) | MuJoCo-powered physics simulator | Not found in the codebase surveyed for this documentation |
-| [purifier](/docs/spine-nodes/purifier/intro) | Kalman filter for tremor reduction | Not found in the codebase surveyed for this documentation |
-| [input](/docs/spine-nodes/input/intro) | Operator input layer (keyboard, Xbox controller, iPhone IMU) | Not found in the codebase surveyed for this documentation |
+| [Kinematic Engine](/docs/spine-nodes/kinematics-engine/intro) | Forward/inverse kinematics for the 6-joint arm | **Two real implementations** — a Python solver in current use, and a from-scratch Zig solver (`red`) with no Spine wiring yet |
+| [CrackHead](/docs/spine-nodes/crack-head/intro) | MuJoCo physics simulation | **Real code**, but on Spine's older, retired transport — not yet ported |
+| [Input nodes](/docs/spine-nodes/input/intro) | Keyboard, Xbox controller, iPhone IMU | **Real code**, same situation as CrackHead |
+| [Big-Boss](/docs/spine-nodes/big-boss/intro) | Namespace visualizer / planned runner + log-gatherer | **Real UI shell**, not yet reading a live namespace |
+| [Purifier](/docs/spine-nodes/purifier/intro) | Kalman filter for tremor reduction | No code — design only |
+| Robot Controller | Owns arm state, calls Kinematic Engine, dispatches to hardware/sim | No code — this is a target-architecture split, not an existing node |
 
-## Pipeline overview (as proposed)
+## Pipeline overview (target)
 
 ```
-Input nodes  →  Purifier  →  Kinematics Engine  →  CrackHead / Hardware
+Input nodes → Purifier → Robot Controller ⇄ Kinematic Engine (RPC)
+                                    │
+                                    ├──→ Embedded / Hardware
+                                    └──→ CrackHead
 ```
 
-Each node is meant to communicate exclusively through Spine, with no direct dependencies between nodes — any node can be replaced, restarted, or swapped out without modifying any other node. That property holds for the one node that actually exists: `kinematics-engine` talks to whatever feeds it and whatever it feeds purely through `spine_py` `Subscriber`/`Publisher` objects passed into its constructor, with no import-time dependency on Purifier or CrackHead's code.
+Every node is meant to talk to every other node exclusively through Spine — no import-time dependency between them. That already holds for the pieces that exist: the Python kinematics node, for instance, only knows about whatever `Subscriber`/`Publisher` objects get passed into its constructor, with zero awareness of what's upstream or downstream.
 
 ## See also
 
-- [Architecture](/docs/architecture) — full system diagram with real-vs-planned status
+- [Architecture](/docs/architecture) — full system diagram with real-vs-planned status, and what changed from earlier drafts of this page
 - [Spine Overview](/docs/spine/intro) — the communication layer all nodes are meant to run on

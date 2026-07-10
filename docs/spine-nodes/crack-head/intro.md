@@ -6,26 +6,39 @@ sidebar_position: 1
 
 # CrackHead
 
-**Status: not found in the codebase surveyed for this documentation.** CrackHead is the proposal's name for a [MuJoCo](/docs/glossary#mujoco)-based physics simulation environment, meant to validate control algorithms and trajectories before they run on physical hardware. No implementation — scene files, bindings, or an installable artifact — exists anywhere in this codebase yet. This page describes the design intent from the proposal; treat anything below as a spec, not documentation of running software.
+**Status: real, working code — on Spine's older, retired transport.** CrackHead is a MuJoCo simulation of the [Arctos](/docs/architecture#the-target-robot-platform) arm. It exists and runs; it just hasn't been ported from the KCP-based Spine to the current Unix-socket one yet, so treat everything below as "validated logic that needs porting," not as a currently-running part of the live pipeline.
+
+## What it actually does
+
+```python
+model = mujoco.MjModel.from_xml_path("./arctos_robot_mujoco.xml")
+data = mujoco.MjData(model)
+
+spine_namespace = Namespace("rime", "ppap")
+r1_sub = Subscriber(spine_namespace, "joints", tuple[MadType.float64, 6])
+
+r1_arm = Arm("r1", model, data, r1_sub)
+```
+
+It loads a real MJCF scene (`arctos_robot_mujoco.xml`, with STL meshes for every link), subscribes to a `"joints"` topic (6 `float64`s), and on every message just writes those 6 values directly into MuJoCo's `qpos` for the six named joints (`joint1`–`joint6`) from a background thread — no interpolation, no physics-driven motion, no torque control. The main loop steps MuJoCo's forward dynamics and syncs the viewer at the simulation's own timestep. `Namespace("rime", "ppap")` is the old `spine_py` two-argument constructor (namespace name + key) from before the redesign — see the note on transport below.
+
+There's also a `prefix_script.py` utility for composing multi-robot MuJoCo scenes (it references a Mecademic Meca 500 arm, not Arctos) — this looks like early, inconclusive exploration rather than an active second target; see [Architecture](/docs/architecture#the-target-robot-platform).
+
+## What "porting" actually means here
+
+Two separate things need to happen before this becomes a real node in the current pipeline, and they're not the same task:
+
+1. **Transport**: swap the old `spine_py`/`Namespace` KCP-based API for whatever the current [spine-py](/docs/spine/py/intro) binding looks like once it's caught up to the Unix-socket redesign (or wait for that binding to stabilize).
+2. **Interface**: today it just teleports joints to whatever value arrives. The [Architecture](/docs/architecture) target has CrackHead receiving the same joint command as the real hardware driver, from a Robot Controller node that doesn't exist yet — that's a different, richer message than "6 raw floats," and a design decision about what that shared schema looks like hasn't been made.
 
 ## The proposed architectural property
 
-The proposal's key design goal for CrackHead is that it would be indistinguishable from the physical hardware driver *from Spine's point of view*: simulated force readings at the tool tip and simulated joint encoders would be published over Spine using the same message format as the physical embedded layer, so the control system, vision pipeline, and any input device could be developed and tested against the simulated robot with zero code changes needed to later target real hardware.
+The design goal — still just a goal — is that CrackHead should be indistinguishable from the physical hardware driver from Spine's point of view: same topics, same message shapes, so control/vision/input development isn't blocked on hardware availability. That depends on a real hardware driver existing and agreeing on a schema with CrackHead, and on the Robot Controller/Kinematic Engine split from [Architecture](/docs/architecture) actually being built. Neither exists yet.
 
-This is a meaningful property *if* it holds, since it would decouple software/control development from hardware fabrication and procurement delays — but it depends on both CrackHead and the physical hardware driver existing and agreeing on a schema, and neither exists in this codebase yet. [Kinematics Engine](/docs/spine-nodes/kinematics-engine/intro), the one real node in the pipeline, doesn't currently publish or subscribe to anything shaped like a joint-state or force message that a simulator could stand in for.
-
-## What CrackHead is meant to model
-
-Per the proposal:
-
-- **Robot model** — a URDF/MJCF description of the arm matching the physical prototype's link lengths, joint limits, and actuator characteristics, so trajectories validated in simulation transfer to hardware with minimal retuning. (A URDF, `arctos.urdf`, already exists and is in real use — but by [Kinematics Engine](/docs/spine-nodes/kinematics-engine/intro) directly via Pinocchio/Robotics Toolbox, not by a MuJoCo-based CrackHead.)
-- **Phantom cornea model** — a deformable or rigid approximation of the physical silicone phantom, with contact parameters tuned to approximate the real material's force-displacement behavior.
-- **Sensor and actuator emulation** — simulated force readings and joint encoders, published over Spine per the architectural property above.
-
-The proposal also describes CrackHead as the substrate for a planned Quest 3 visualization path — the same simulation state used for control-system testing would be what a VR application subscribes to for 3D rendering. That's a further downstream dependency on CrackHead existing, also not yet built.
+The proposal also describes CrackHead as the substrate for a planned Quest 3 visualization path — same simulation state, subscribed to by a VR app for 3D rendering. Further downstream of everything above; not started.
 
 ## See also
 
-- [Architecture](/docs/architecture) — how CrackHead is meant to fit into the full pipeline, and what actually exists today
-- [Kinematics Engine](/docs/spine-nodes/kinematics-engine/intro) — the node that would feed it joint targets, if wired up
-- [Spine Overview](/docs/spine/intro) — the communication layer it would need to publish through
+- [Architecture](/docs/architecture) — how CrackHead is meant to fit into the full pipeline
+- [Kinematic Engine](/docs/spine-nodes/kinematics-engine/intro) — would feed it joint targets, once both are on the same transport and interface
+- [Spine Overview](/docs/spine/intro) — the communication layer it needs to be ported onto

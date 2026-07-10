@@ -32,9 +32,12 @@ Every message — key and value alike — is encoded with [MAD](/docs/spine/mad/
 | Package | Language | Status |
 |---|---|---|
 | [spine-go](/docs/spine/go/intro) | Go | Primary implementation — the one to read to understand the real protocol |
-| [spine-py](/docs/spine/py/intro) | Python | Real, in use by [kinematics-engine](/docs/spine-nodes/kinematics-engine/intro); a CFFI bridge over a separately-compiled shared library, architecturally different from spine-go |
+| [spine-py](/docs/spine/py/intro) | Python | Real, but a CFFI bridge over a *compiled build of Spine's old, retired KCP/mDNS backend* — not interoperable with current `spine-go`/`spined` |
 | spine-zig | Zig | Early/partial — a single in-progress `Service` implementation, not yet documented as its own page |
+| `spine` (CLI) | — | Not built — a one-line spec exists ("create a namespace, add a peer, get system info") matching the admin-operations design discussed for `spined`, but no code |
 | [spine-cpp](/docs/spine/cpp/intro) | C++ | Not found in the codebase despite being named in the project proposal |
+
+Note the naming collision to watch for: "Spine" is this whole communication layer; `spine-go`/`spine-py`/`spine-zig` are language bindings; and `spine` (lowercase, no suffix) is specifically the planned **command-line tool** for talking to `spined` — a different thing from all of the above, not a fourth language binding.
 
 ## Architecture
 

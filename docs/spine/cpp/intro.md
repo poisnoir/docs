@@ -6,15 +6,15 @@ sidebar_position: 1
 
 # spine-cpp
 
-**Status: not yet found in the codebase.** The project's Capstone Proposal lists C++ as a target language for "the embedded control loop interface and the CrackHead simulation bindings to MuJoCo's C API," and earlier drafts of this documentation described a `spine-cpp` package with a full pub/sub and RPC API. No such package — headers, source, or an installable artifact — currently exists anywhere in this codebase. This page previously documented an invented API (`spine::Node`, `.subscribe`/`.publish`/`.handle`/`.call`, mDNS discovery); none of it is real, and it's been removed rather than left to mislead.
+**Status: not found in the codebase, though a C++ wrapper was reportedly attempted once.** Per the project's own design notes, the retired KCP/mDNS-era Spine was wrapped via cgo for **both** C++ and Python — [spine-py](/docs/spine/py/intro)'s `spineBridge.so` is the surviving half of that; no equivalent C++ headers, source, or build artifact were found anywhere in this codebase. Whether that means the C++ side was never finished, never committed, or removed isn't determinable from what's here.
 
 ## What actually exists today
 
 - **Go** (`spine-go`) is the verified, working, primary implementation — see [spine-go](/docs/spine/go/intro).
-- **Python** (`spine_py`) exists and is in real use by [kinematics-engine](/docs/spine-nodes/kinematics-engine/intro), via a CFFI bridge to a compiled `spineBridge.so` — see [spine-py](/docs/spine/py/intro). Notably, that bridge is *not* written in C++ in any source found here; where its implementation actually lives wasn't determined while writing this page.
+- **Python** (`spine_py`) exists and is real, but bound to the old, retired backend rather than current `spine-go`/`spined` — see [spine-py](/docs/spine/py/intro) for the full story.
 - **Zig** (`spine-zig`) has an early, partial client — a single in-progress `NewService` implementation, still mostly `zig init` scaffolding otherwise. Not documented as its own page yet since there isn't enough there to write about beyond "it exists and compiles."
 
-If C++ is genuinely needed for the embedded/MuJoCo-facing work the proposal describes, the two realistic paths are: reuse `spineBridge.so`'s C ABI (the same one `spine_py` calls into via CFFI) directly from C++, or write a native C++ client against the same wire protocol spine-go uses (Unix domain sockets + MAD framing — see [MAD](/docs/spine/mad/intro)). Neither has been started as of this writing.
+If C++ is genuinely needed — the Capstone Proposal names it for the embedded control-loop interface and MuJoCo C API bindings — the realistic paths are the same as for any new binding: write a native C++ client against the current Unix-socket + MAD protocol (see [MAD](/docs/spine/mad/intro)), or repeat the cgo-wrapper approach against **current** `spine-go` instead of the retired version. Given that approach was already tried once and moved away from (see [spine-py](/docs/spine/py/intro)'s history), a native client is probably the better default unless there's a specific reason to prefer wrapping Go again.
 
 ## Links
 
