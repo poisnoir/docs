@@ -74,9 +74,10 @@ docusaurus.config.js    # site config, navbar, footer, plugins
 | Repo | Description |
 |------|-------------|
 | [poisnoir/spine-go](https://github.com/poisnoir/spine-go) | Go implementation of Spine |
-| [poisnoir/spine-py](https://github.com/poisnoir/spine-py) | Python bindings |
-| [poisnoir/spine-cpp](https://github.com/poisnoir/spine-cpp) | C++ bindings |
-| [poisnoir/crack-head-cpp](https://github.com/poisnoir/crack-head-cpp) | MuJoCo simulator |
-| [poisnoir/kinematics-engine](https://github.com/poisnoir/kinematics-engine) | IK solver |
-| [poisnoir/keyboard](https://github.com/poisnoir/keyboard) | Keyboard input node |
-| [poisnoir/iphone-imu](https://github.com/poisnoir/iphone-imu) | iPhone IMU input node |
+| [poisnoir/spine-zig](https://github.com/poisnoir/spine-zig) | Zig implementation of Spine, wire-compatible with spine-go |
+| [poisnoir/spined](https://github.com/poisnoir/spined) | Registry daemon (Zig) |
+| [poisnoir/red](https://github.com/poisnoir/red) | From-scratch IK/FK solver (Zig) |
+| [poisnoir/kinematic-engine](https://github.com/poisnoir/kinematic-engine) | Kinematics node — Zig, using `red` |
+| [poisnoir/crack-head](https://github.com/poisnoir/crack-head) | MuJoCo simulator (Zig) |
+| [poisnoir/keyboard-controller](https://github.com/poisnoir/keyboard-controller) | Keyboard input node |
+| [poisnoir/iphone_imu](https://github.com/poisnoir/iphone_imu) | iPhone IMU input node |

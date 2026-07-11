@@ -124,7 +124,7 @@ const config = {
       prism: {
         theme: prismThemes.github,
         darkTheme: prismThemes.dracula,
-        additionalLanguages: ['go', 'python', 'cpp', 'bash', 'json'],
+        additionalLanguages: ['go', 'zig', 'bash', 'json'],
       },
     }),
 };

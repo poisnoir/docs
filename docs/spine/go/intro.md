@@ -80,9 +80,9 @@ result, err := caller.Call("hello spine", context.Background())
 
 `ServiceCaller` and `Subscriber` both retry their underlying connection with exponential backoff (via `github.com/cenkalti/backoff/v4`) — a transient disconnect (e.g. the service process restarting) doesn't require the caller to be recreated.
 
-## Closing an entity
+## Entities live as long as the node does
 
-`Service.Close()`, `Publisher.Close()`, `Subscriber.Close()`, and `ServiceCaller.Close()` all stop the local goroutines and close the local listener/connection. **They do not currently tell `spined` anything** — the entity you closed stays in the daemon's registry until the entire node disconnects. If you're building something that opens and closes many entities over a long-running process's lifetime, be aware this is a known gap, not a currently-solved case.
+There's no `Close()` on `Service`, `Publisher`, `Subscriber`, or `ServiceCaller` — this was removed deliberately: an entity is meant to live as long as its node does, the same way a long-running HTTP server doesn't get told to "stop" individual handlers. If you need a topic/service to genuinely go away, that means ending the node's process (or its context) rather than tearing down one entity at a time. Real cleanup for `Subscriber`/`ServiceCaller` specifically — the two cases where it'd plausibly matter, since they represent momentary *interest* rather than a node's own identity — is planned, not bolted on.
 
 ## What's actually happening on the wire
 
@@ -96,5 +96,6 @@ A `ServiceCaller`/`Subscriber` just dials the path directly; `spined` is not con
 ## Links
 
 - [GitHub](https://github.com/poisnoir/spine-go)
+- [spine-zig](/docs/spine/zig/intro) — the wire-compatible Zig counterpart
 - [MAD](/docs/spine/mad/intro) — the serializer used for every message
 - [Spine Overview](/docs/spine/intro) — how this fits together with `spined`

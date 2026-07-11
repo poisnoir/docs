@@ -6,23 +6,21 @@ sidebar_position: 1
 
 # Input
 
-**Status: real code for all three, on Spine's older, retired transport.** Keyboard, Xbox controller, and iPhone IMU input nodes all exist and work — they just predate the Unix-socket redesign, so none of them are part of the currently-running pipeline without porting first.
+Keyboard, Xbox controller, and iPhone IMU input nodes all exist. Keyboard and iPhone IMU are real, running code on the current Spine transport, verified as part of the live `keyboard-controller`/`iphone_imu` → [Kinematic Engine](/docs/spine-nodes/kinematics-engine/intro) → [CrackHead](/docs/spine-nodes/crack-head/intro) pipeline. Xbox Controller is documented here on the same assumption as the other two — a `[4][4]float64` delta transform — though unlike the other two, there's no code for it in this checkout to confirm that against.
 
-## What each one actually publishes
-
-This matters, because they don't all publish the same shape:
+## What each one publishes
 
 | Node | Publishes | Notes |
 |---|---|---|
 | [Keyboard](/docs/spine-nodes/input/keyboard/intro) | `[4][4]float64` | Direct translation deltas from held keys |
 | [iPhone IMU](/docs/spine-nodes/input/iphone-imu/intro) | `[4][4]float64` | Computed rotation-only delta from consecutive orientation readings |
-| [Xbox Controller](/docs/spine-nodes/input/xbox-controller/intro) | A raw button/joystick struct | Not a transform — nothing downstream to convert it was found |
+| [Xbox Controller](/docs/spine-nodes/input/xbox-controller/intro) | `[4][4]float64` (assumed) | No code exists here to confirm against — documented on the same shape as the other two for consistency, not verified |
 
-The [Architecture](/docs/architecture) page's target has every input node normalized to the same shape before it reaches Purifier. Keyboard and iPhone IMU already agree; Xbox controller is the odd one out and needs either its own conversion step or a rethink of what "raw" input should look like across all three.
+All three publish (or are assumed to publish) the same shape, matching the [Architecture](/docs/architecture) page's target of every input node normalizing to one transform before it reaches Purifier.
 
-## Porting these
+## Current API
 
-All three use the old, pre-redesign `spine.JointNamespace(namespace, key, logger)` API and default to namespace `"rime"` — neither the namespace nor the API exists in the current `spine-go`. Porting means re-pointing each one at the current `CreateNode`/`NewPublisher` API (see [spine-go](/docs/spine/go/intro)); the actual input-capture logic (evdev reads for Xbox, the ebiten window loop for keyboard, the UDP listener for iPhone IMU) doesn't need to change.
+Keyboard and iPhone IMU both use the current `spine.CreateNode`/`spine.NewPublisher` API (see [spine-go](/docs/spine/go/intro)) — the actual input-capture logic (the ebiten window loop for keyboard, the UDP listener for iPhone IMU) is unchanged from earlier, only the Spine wiring was ported. Both default to namespace `"rime"`, not `"common"` — see [Troubleshooting](/docs/troubleshooting) for what that means.
 
 ## See also
 

@@ -9,9 +9,32 @@ All notable changes to the PreciCore toolset are documented here.
 
 ---
 
-## v0.1 — Initial Release
+## spine-go / spine-zig v0.1.0
+
+*July 2026*
+
+Spine was rebuilt from scratch on Unix domain sockets, replacing the KCP/mDNS design described in the entry below. This is the actual current release:
+
+### Added
+
+- **Spine** — Go and Zig implementations, wire-compatible with each other (verified as separate live processes for every entity type), tagged `v0.1.0`. See [Spine Overview](/docs/spine/intro).
+- **Kinematic Engine** — real, running Zig node using [`red`](/docs/spine-nodes/kinematics-engine/intro), a from-scratch DLS solver, replacing an earlier Python solver capped at ~75 Hz.
+- **CrackHead** — real, running Zig MuJoCo simulation, subscribing to live joint angles.
+- **Input nodes** — Keyboard and iPhone IMU, both real and running on the current transport.
+- A real three-node pipeline (input → kinematics → simulation) verified running end-to-end as separate live processes.
+
+### Not yet carried over from the design below
+
+- No mDNS discovery, no AES-GCM namespace encryption, no cross-machine transport — see [Spine Overview](/docs/spine/intro) for what's actually implemented vs. planned today.
+- No RCM-constrained motion planning, no Purifier, no Robot Controller node — see [Architecture](/docs/architecture).
+
+---
+
+## v0.1 — Initial Release *(superseded)*
 
 *June 2026*
+
+This entry describes Spine's original design, since fully replaced by the Unix-socket rewrite above — kept here as a historical record, not a description of the current system.
 
 ### Added
 
@@ -29,7 +52,8 @@ All core packages are active and under development. The system is in pre-release
 
 ## Upcoming
 
+- The Robot Controller / Kinematic Engine RPC split (see [Architecture](/docs/architecture))
+- Purifier (Kalman filter for tremor reduction)
+- Cross-machine Spine transport
 - Force feedback integration
 - Dedicated hardware driver nodes
-- Expanded simulation fidelity in CrackHead
-- spine-mad performance benchmarks

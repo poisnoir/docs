@@ -6,54 +6,34 @@ sidebar_position: 1
 
 # Kinematic Engine
 
-There are **two real implementations** of kinematics in this codebase, at very different stages: `kinematic-engine` (Python — real math, but wired to Spine's old, retired transport) and `red` (Zig, a from-scratch rewrite with better numerics, not wired to Spine at all yet). Neither is the final answer — this page describes both honestly rather than presenting one as "the" kinematics engine.
+`kinematic-engine` is a real, running Zig node — it joins Spine, subscribes to operator-input deltas, solves inverse kinematics via `red` (see below), and publishes joint angles. It's part of a real three-node pipeline today: a Go input node (`keyboard-controller`/`iphone_imu`) → `kinematic-engine` → [CrackHead](/docs/spine-nodes/crack-head/intro), verified running together as separate live processes.
+
+An earlier Python implementation, built on Robotics Toolbox for Python, existed before this — real math, but wired to Spine's old, retired KCP/mDNS transport, and capped at ~75 Hz. It's what motivated writing `red` in the first place (see [Architecture](/docs/architecture#the-target-robot-platform)); this page now describes the current Zig node rather than that earlier version.
 
 ## Target role: a stateless RPC service
 
-Per the [Architecture](/docs/architecture) page, the intended design has a separate **Robot Controller** node that owns arm state and decides target poses, calling Kinematic Engine as a stateless RPC `solve(target_pose, mode) → (joint_angles, reachable)`. Neither existing implementation does this yet — both directly own the "current joint state" and consume displacement input themselves, combining what the target architecture treats as two separate nodes into one. Splitting that apart (extracting a stateless solve-service interface) is real, not-yet-done work, not just a wiring exercise.
+Per the [Architecture](/docs/architecture) page, the intended design has a separate **Robot Controller** node that owns arm state and decides target poses, calling Kinematic Engine as a stateless RPC `solve(target_pose, mode) → (joint_angles, reachable)`. The current node doesn't do this yet — it directly owns "current joint state" and consumes displacement input itself, combining what the target architecture treats as two separate nodes into one. Splitting that apart (extracting a stateless solve-service interface) is real, not-yet-done work, not just a wiring exercise.
 
-## `kinematic-engine` (Python) — real math, old transport
+## The current node
 
-Built on [Robotics Toolbox for Python](https://petercorke.github.io/robotics-toolbox-python/) (`roboticstoolbox`), with `pinocchio`/`pink` also imported in `main.py` (a scratch/debug script, not the node's real entry point). A 6-joint Denavit-Hartenberg chain:
+```zig
+const spine = @import("spine_zig");
+const red = @import("red");
 
-```python
-robot = DHRobot([
-    RevoluteDH(a=0*mm,       alpha=0,        d=287.87*mm, offset=0),
-    RevoluteDH(a=20.174*mm,  alpha=-np.pi/2, d=0,         offset=-np.pi/2),
-    RevoluteDH(a=260.986*mm, alpha=0,        d=0,         offset=0),
-    RevoluteDH(a=19.219*mm,  alpha=0,        d=260.753*mm, offset=0),
-    RevoluteDH(a=0*mm,       alpha=np.pi/2,  d=0,         offset=0),
-    RevoluteDH(a=0*mm,       alpha=-np.pi/2, d=74.745*mm, offset=np.pi),
-])
+var node = try spine.Node.init("rime", "ppap", io, allocator);
+
+const input = try node.subscribe([4][4]f64, "r1-change");
+const output = try node.publish([6]f64, "joints");
+
+var r1 = kinematic_engine.Robot.init("r1", input, output);
+try r1.run();
 ```
 
-These parameters match the [Arctos](/docs/architecture#the-target-robot-platform) arm, and are hardcoded from a URDF rather than parsed at runtime. IK is numerical — `robot.ets().ikine_LM(...)`, Levenberg-Marquardt via Peter Corke's "sugihara" method, with joint limits and a handful of tuned gains (`kq`, `ps`, `pi`). There's no RCM pivot-point constraint and no motion-scaling gain in this code — if either is needed, it lives elsewhere in the pipeline or hasn't been built.
+The run loop: publish the current joint state, block for the next `[4][4]f64` displacement, compose it against the current end-effector pose (forward kinematics), solve inverse kinematics for the new goal, and adopt the result only if the solve succeeded — a failed solve just keeps the previous joint state and waits for the next input, rather than erroring out. This node joins the `"rime"` namespace, not `"common"` — see [Troubleshooting](/docs/troubleshooting) for what that means for `spined` registration (short version: it only works because `spined` either isn't running or is ignored, since `"rime"` isn't a namespace it recognizes).
 
-Spine wiring — combines controller and kinematics into one loop:
+## `red` — the math underneath
 
-```python
-class Robot:
-    def __init__(self, name, input_source: Subscriber, output_source: Publisher):
-        self.current_joints = np.zeros(6, dtype=np.float64)
-
-    def run(self):
-        while True:
-            self.output_source.publish(tuple(self.current_joints))
-            displacement = np.array(self.input_source.get_data(), dtype=np.float64)
-            goal = forward_kinematics(self.current_joints) @ displacement
-            result = inverse_kinematics(goal, self.current_joints)
-            if not result.success:
-                continue
-            self.current_joints = result.q
-```
-
-Publish current state, read the next displacement, compose it against the current pose, solve, adopt the new joints only on success — a failed solve is silently dropped, not logged or surfaced. Uses [spine-py](/docs/spine/py/intro) — which, importantly, is a binding for Spine's **old, retired** KCP/mDNS transport, not the current `spine-go`/`spined`. This node's kinematics math is real and usable standalone; its Spine wiring needs the same porting work as the Go input nodes and CrackHead before it talks to the current daemon.
-
-**Known limitations:** no RCM constraint, no motion scaling, failed solves are invisible, it's locked to ~75 Hz in practice (which is exactly what motivated `red`), and its Spine wiring targets the retired backend.
-
-## `red` (Zig) — in development, not yet wired to anything
-
-A from-scratch numerical IK solver, written to fix specific problems with the Python solver: speed, and orientation-error blowups near singularities that made linear moves "feel weird." It has no Spine integration yet — it's a standalone library with its own test suite and a tiny CLI demo (`main.zig`), not a running node.
+A from-scratch numerical IK solver, written to fix specific problems with the earlier Python solver: speed, and orientation-error blowups near singularities that made linear moves "feel weird." Now a real dependency of `kinematic-engine` (`zig fetch`-installed, tagged `v0.1.1`), not just a standalone library.
 
 **Forward kinematics** chains six revolute-joint transforms; joint parameters are currently **hardcoded for Arctos** — `RobotType(urdf_path)` takes a URDF path argument but ignores it. Real URDF parsing hasn't been built yet.
 
@@ -74,24 +54,20 @@ Two features beyond a bare DLS solver:
 
 | Scenario | Success rate |
 |---|---|
-| Single-shot, random target, cold start (worst case) | ~91% |
-| Warm-started along a smooth path (the realistic case — each waypoint seeded from the previous solution) | >95% |
+| Single-shot, random target, cold start (worst case) | ~91–92% |
+| Warm-started along a smooth path (the realistic case — each waypoint seeded from the previous solution) | ~95–100% |
 
 The gap between these two numbers is the point: real robot motion is a sequence of nearby waypoints, not random single-shot targets, so the path-following number is the more representative one.
 
-## What's missing before either one is a real node on the current Spine
+## What's missing before this is the real node the architecture describes
 
-- **Python**: needs its Spine wiring re-pointed from the old `spine_py`/cgo bridge to whatever current binding exists by the time this is picked up — see [spine-py](/docs/spine/py/intro)
-- **`red`**: no Spine wiring at all yet — it's a library, not a node; would need either a Go/Zig-interop bridge or its own client against the current Unix-socket protocol
-- **Both**: no real URDF parsing (Arctos's joints are hardcoded in both), no RCM constraint, and the controller/kinematics split from [Architecture](/docs/architecture) doesn't exist in either — whichever one becomes the real node needs a thin stateless `solve` RPC wrapper, not a port of the Python `Robot` class's combined controller+kinematics loop
-
-## Links
-
-- [spine-py](/docs/spine/py/intro) — the binding the Python implementation uses
-- [MAD](/docs/spine/mad/intro) — including the Python/Go wire-format caveat, relevant once either implementation needs to talk to a Go node directly
+- **The controller/kinematics split** doesn't exist — this node still owns joint state and consumes displacement input directly, combining two roles the target architecture keeps separate. Whichever node ends up doing this needs a thin stateless `solve` RPC wrapper, not this combined loop.
+- **No real URDF parsing** — Arctos's joints are hardcoded in `red`.
+- **No RCM constraint** — neither this node nor `red` itself models the fixed pivot point corneal surgery requires.
 
 ## See also
 
 - [Architecture](/docs/architecture) — the Robot Controller / Kinematic Engine split this page assumes
+- [CrackHead](/docs/spine-nodes/crack-head/intro) — the node downstream of this one in the running pipeline
 - [Glossary: Inverse Kinematics](/docs/glossary#inverse-kinematics-ik)
 - [Glossary: DLS](/docs/glossary#dls-damped-least-squares)

@@ -6,30 +6,30 @@ sidebar_position: 1
 
 # CrackHead
 
-**Status: real, working code — on Spine's older, retired transport.** CrackHead is a MuJoCo simulation of the [Arctos](/docs/architecture#the-target-robot-platform) arm. It exists and runs; it just hasn't been ported from the KCP-based Spine to the current Unix-socket one yet, so treat everything below as "validated logic that needs porting," not as a currently-running part of the live pipeline.
+**Real, running code, on the current transport.** CrackHead is a MuJoCo simulation of the [Arctos](/docs/architecture#the-target-robot-platform) arm, written in Zig, driving MuJoCo directly via `@cImport` (no wrapper language in between). It's the last stage of a real three-node pipeline — a Go input node → [Kinematic Engine](/docs/spine-nodes/kinematics-engine/intro) → CrackHead — verified running together as separate live processes, not just individually.
+
+An earlier Python version of CrackHead existed before this — real, working code, but on Spine's old, retired KCP/mDNS transport. This page now describes the current Zig node.
 
 ## What it actually does
 
-```python
-model = mujoco.MjModel.from_xml_path("./arctos_robot_mujoco.xml")
-data = mujoco.MjData(model)
+```zig
+const spine = @import("spine_zig");
 
-spine_namespace = Namespace("rime", "ppap")
-r1_sub = Subscriber(spine_namespace, "joints", tuple[MadType.float64, 6])
-
-r1_arm = Arm("r1", model, data, r1_sub)
+var node = try spine.Node.init("rime", "crack-head", io, allocator);
+const subscriber = try node.subscribe([6]f64, "joints");
+_ = try io.concurrent(receiveJoints, .{ io, subscriber });
 ```
 
-It loads a real MJCF scene (`arctos_robot_mujoco.xml`, with STL meshes for every link), subscribes to a `"joints"` topic (6 `float64`s), and on every message just writes those 6 values directly into MuJoCo's `qpos` for the six named joints (`joint1`–`joint6`) from a background thread — no interpolation, no physics-driven motion, no torque control. The main loop steps MuJoCo's forward dynamics and syncs the viewer at the simulation's own timestep. `Namespace("rime", "ppap")` is the old `spine_py` two-argument constructor (namespace name + key) from before the redesign — see the note on transport below.
+It loads a real MJCF scene (`arctos_robot_mujoco.xml`, with STL meshes for every link), subscribes to a `"joints"` topic (`[6]f64`), and applies received values directly to MuJoCo's `qpos` for the six named joints (`joint1`–`joint6`) — no interpolation, no physics-driven motion, no torque control. Joints are received on a background task and applied once per render frame from a shared, mutex-guarded value, so the visualizer keeps rendering smoothly between messages instead of stalling on the network. The main loop steps MuJoCo's forward dynamics and syncs a GLFW-based viewer at the simulation's own timestep.
 
-There's also a `prefix_script.py` utility for composing multi-robot MuJoCo scenes (it references a Mecademic Meca 500 arm, not Arctos) — this looks like early, inconclusive exploration rather than an active second target; see [Architecture](/docs/architecture#the-target-robot-platform).
+Like [Kinematic Engine](/docs/spine-nodes/kinematics-engine/intro), this joins the `"rime"` namespace rather than `"common"` — see [Troubleshooting](/docs/troubleshooting) for what that means for `spined` registration.
 
-## What "porting" actually means here
+## What's still missing before this is the real pipeline node
 
-Two separate things need to happen before this becomes a real node in the current pipeline, and they're not the same task:
+Two separate things, and they're not the same task:
 
-1. **Transport**: swap the old `spine_py`/`Namespace` KCP-based API for whatever the current [spine-py](/docs/spine/py/intro) binding looks like once it's caught up to the Unix-socket redesign (or wait for that binding to stabilize).
-2. **Interface**: today it just teleports joints to whatever value arrives. The [Architecture](/docs/architecture) target has CrackHead receiving the same joint command as the real hardware driver, from a Robot Controller node that doesn't exist yet — that's a different, richer message than "6 raw floats," and a design decision about what that shared schema looks like hasn't been made.
+1. **Interface**: today it just teleports joints to whatever value arrives. The [Architecture](/docs/architecture) target has CrackHead receiving the same joint command as the real hardware driver, from a Robot Controller node that doesn't exist yet — that's a different, richer message than "6 raw floats," and a design decision about what that shared schema looks like hasn't been made.
+2. **The controller/kinematics split** — see [Kinematic Engine](/docs/spine-nodes/kinematics-engine/intro) — needs to exist before CrackHead's input is really "the same command the hardware driver gets," rather than just whatever `kinematic-engine` happens to publish today.
 
 ## The proposed architectural property
 
@@ -40,5 +40,5 @@ The proposal also describes CrackHead as the substrate for a planned Quest 3 vis
 ## See also
 
 - [Architecture](/docs/architecture) — how CrackHead is meant to fit into the full pipeline
-- [Kinematic Engine](/docs/spine-nodes/kinematics-engine/intro) — would feed it joint targets, once both are on the same transport and interface
-- [Spine Overview](/docs/spine/intro) — the communication layer it needs to be ported onto
+- [Kinematic Engine](/docs/spine-nodes/kinematics-engine/intro) — feeds it joint targets today
+- [Spine Overview](/docs/spine/intro) — the communication layer it runs on

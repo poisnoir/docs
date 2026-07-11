@@ -6,27 +6,22 @@ sidebar_position: 1
 
 # Xbox Controller
 
-**Status: real code, on Spine's older, retired transport — and the odd one out.** Reads a physical Xbox controller via Linux `evdev` and publishes its raw button/joystick state directly, unlike [Keyboard](/docs/spine-nodes/input/keyboard/intro) and [iPhone IMU](/docs/spine-nodes/input/iphone-imu/intro), which both publish a `[4][4]float64` delta transform.
+**Not present in this checkout.** Documented here on the same assumption as [Keyboard](/docs/spine-nodes/input/keyboard/intro) and [iPhone IMU](/docs/spine-nodes/input/iphone-imu/intro): reads a physical Xbox controller (via Linux `evdev`, the same approach the other two Go input nodes use) and publishes a `[4][4]float64` delta transform, consistent with the rest of the input layer rather than a raw button/joystick struct. Unlike the other two, there's no code here to confirm this shape against — treat this page as the intended contract for whenever this node is written or ported in, not a description of running code.
 
-## What it actually publishes
+## Assumed shape
 
 ```go
-type XboxController struct {
-    A, B, X, Y             bool
-    LB, RB                 bool
-    LT, RT                 int32
-    LeftStick, RightStick   Joystick // {X, Y int32}
-    LSB, RSB                bool
-    Up, Down, Left, Right   bool
-    Back, Start, Guide      bool
-}
+pub.Publish([4][4]float64{...}) // same delta-transform convention as Keyboard/iPhone IMU
 ```
 
-The raw struct, updated in place from `evdev` button/axis events and republished on every event. There is no conversion from this into a `[4][4]float64` transform anywhere in the code found — whatever is meant to consume this either needs to accept this shape directly, or a conversion step needs to be written before this can feed the same downstream path as the other two input nodes.
+Left stick / right stick and triggers would map to translation and/or rotation deltas the same way `W`/`A`/`S`/`D` do for [Keyboard](/docs/spine-nodes/input/keyboard/intro) — the exact axis mapping isn't decided, since there's no implementation to derive it from yet.
 
-Reads from a fixed device path (`-usb`, default `/dev/input/event19` — will need to match whatever `evdev` enumerates the controller as on a given machine) and connects via the same pre-redesign `spine.JointNamespace("rime", "ppap", logger)` API as the others.
+## What this would need
+
+- `spine.CreateNode`/`spine.NewPublisher[[4][4]float64]`, same as the other two input nodes (see [spine-go](/docs/spine/go/intro)) — not the old pre-redesign `JointNamespace` API, since there's no legacy version of this node to port from.
+- A conversion step from raw controller state (buttons, joysticks, triggers) to a delta transform, analogous to iPhone IMU's `CreateDelta`.
 
 ## See also
 
-- [Input Overview](/docs/spine-nodes/input/intro) — the shape mismatch with the other two input nodes
-- [Keyboard](/docs/spine-nodes/input/keyboard/intro) / [iPhone IMU](/docs/spine-nodes/input/iphone-imu/intro) — both publish `[4][4]float64` instead
+- [Input Overview](/docs/spine-nodes/input/intro) — how this fits with the other two input nodes
+- [Keyboard](/docs/spine-nodes/input/keyboard/intro) / [iPhone IMU](/docs/spine-nodes/input/iphone-imu/intro) — the two that actually exist and run today

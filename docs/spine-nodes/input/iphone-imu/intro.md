@@ -6,7 +6,7 @@ sidebar_position: 1
 
 # iPhone IMU
 
-**Status: real code, on Spine's older, retired transport.** Listens for UDP packets from an iPhone sensor-streaming app and publishes a `[4][4]float64` rotation-only delta transform.
+**Real, running code, on the current Spine transport.** Listens for UDP packets from an iPhone sensor-streaming app and publishes a `[4][4]float64` rotation-only delta transform. Part of the live `iphone_imu` → [Kinematic Engine](/docs/spine-nodes/kinematics-engine/intro) → [CrackHead](/docs/spine-nodes/crack-head/intro) pipeline (an alternative input source to [Keyboard](/docs/spine-nodes/input/keyboard/intro), publishing the same topic).
 
 ## What it actually does
 
@@ -28,7 +28,7 @@ type IphoneOutput struct {
 
 Each loop iteration computes `CreateDelta`: the Euler-angle difference (yaw/roll/pitch) between the current and previous reading, with deltas under ~1° zeroed out as a noise floor, converted to a rotation matrix by direct trigonometric formula (not a library) and written into a `[4][4]float64` with **zero translation** — only the rotation block is populated, `result[3][3] = 1`, everything else in the translation column is `0`. The result is published as the delta transform; there's no accumulated absolute pose, no drift correction beyond that per-step noise gate, and no analytical Kalman filtering — this is what [Purifier](/docs/spine-nodes/purifier/intro) is meant to eventually replace.
 
-Connects via the same pre-redesign `spine.JointNamespace("rime", "ppap", logger)` API as the other input nodes, publishing under the default name `iphone_imu`. A separate `MemoryRecorder` buffers every raw reading and dumps it to a timestamped JSON file in `./runs/` on exit — useful for offline filter tuning, independent of whether Spine itself is even reachable.
+Connects via `spine.CreateNode(*namespace, *key, context.Background(), logger)` and `spine.NewPublisher[[4][4]float64]`, same as the other input nodes (flags: `-namespace` default `"rime"`, `-name` default `"r1-change"` — the same topic [Keyboard](/docs/spine-nodes/input/keyboard/intro) publishes, so either can drive [Kinematic Engine](/docs/spine-nodes/kinematics-engine/intro); `-key` default `"ppap"`). A separate `MemoryRecorder` buffers every raw reading and dumps it to a timestamped JSON file in `./runs/` on exit — useful for offline filter tuning, independent of whether Spine itself is even reachable.
 
 ## See also
 

@@ -20,13 +20,13 @@ Common issues, and how to fix them, drawn from actually reading and running the 
 
 ---
 
-## Entities linger after you thought you closed them
+## There's no way to unregister a single entity without restarting the node
 
-**Symptom:** You call `Service.Close()`, `Publisher.Close()`, `Subscriber.Close()`, or `ServiceCaller.Close()`, but the entity still shows up as registered against `spined` (or a new attempt to register the same name still fails as "already registered").
+**Symptom:** You're looking for a `Service.Close()`, `Publisher.Close()`, `Subscriber.Close()`, or `ServiceCaller.Close()` method and it doesn't exist (in either `spine-go` or `spine-zig`).
 
-**Cause:** None of the `Close()` methods notify `spined`. They only tear down the local listener/connection and cancel local goroutines. `spined` only removes an entity when the *entire node's* connection to it drops.
+**Cause:** This was removed deliberately, not an oversight — an entity is meant to live as long as its node does, the same way a long-running HTTP server doesn't get told to "stop" individual handlers. `spined` only removes an entity when the *entire node's* connection to it drops.
 
-**Fix:** For now, the entity is effectively pinned to the node's lifetime — don't rely on being able to re-register the same entity name from the same node without a full restart. If this is blocking you, it's a known, real gap, not a configuration issue on your end.
+**Fix:** If you need a topic/service to genuinely go away, end the node's process (or its context) rather than looking for a way to tear down one entity at a time. Real cleanup for `Subscriber`/`ServiceCaller` specifically is planned, not currently available.
 
 ---
 
@@ -61,16 +61,6 @@ Common issues, and how to fix them, drawn from actually reading and running the 
 **Cause:** This is by design given MAD's current fixed-size-only encoding — the service side can't encode a variable-length string back to the caller, so it only ever sends a status byte. The status codes are in `internal/globals`; `252` is `ERROR_SERVICE_ERROR_CODE` (your handler returned an `error`), `251` is a decode failure, etc.
 
 **Fix:** Look at the *service's* logs (via its `slog.Logger`) for the actual error text — it's logged server-side even though it can't be transmitted back to the caller today.
-
----
-
-## Cross-language (Python) node can't talk to a Go node
-
-**Symptom:** A `spine_py` node and a `spine-go` node using what looks like "the same" message type don't interoperate — decoding fails or produces garbage.
-
-**Cause:** The Python `mad` package (installed alongside `spine_py`) is a different, older implementation than `mad-go`/`mad.zig` — it still supports strings and dicts, using a completely different wire-code scheme. There's no guarantee the two sides agree on bytes for a type that looks identical on paper. See [MAD](/docs/spine/mad/intro).
-
-**Fix:** Until this is reconciled, only rely on cross-language interop for primitive/fixed-array-only message types, and verify byte-for-byte compatibility yourself rather than assuming it.
 
 ---
 

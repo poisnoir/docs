@@ -106,9 +106,10 @@ You should see the subscriber print an increasing number. There's no discovery s
 ## What this doesn't cover
 
 - **Services/RPC** — see the [Examples](/docs/spine/examples/intro) page for a `NewService`/`NewServiceCaller` pair.
+- **spine-zig** — this walkthrough is Go-only; see [spine-zig](/docs/spine/zig/intro) for the same steps in Zig.
 - **Cross-machine setups** — not possible yet; see [Spine Overview](/docs/spine/intro).
 - **Namespaces other than `common`** — rejected by `spined` today; see [Troubleshooting](/docs/troubleshooting).
-- **Purifier / Kinematics Engine / CrackHead as a connected pipeline** — Kinematics Engine has real code ([details here](/docs/spine-nodes/kinematics-engine/intro)) but nothing in this codebase currently runs it end-to-end against a live input source and a live simulator.
+- **Purifier** — no code exists yet; see [Purifier](/docs/spine-nodes/purifier/intro). Kinematics Engine and CrackHead, by contrast, *are* running end-to-end today against a live input source and a live simulator — see [Kinematics Engine](/docs/spine-nodes/kinematics-engine/intro).
 
 ## Next steps
 

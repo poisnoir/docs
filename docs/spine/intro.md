@@ -8,6 +8,8 @@ sidebar_position: 1
 
 Spine is PreciCore's communication layer — the alternative to running ROS 2 for a system this size. It gives every module two primitives, **Services** (RPC) and **Pub/Sub**, defined with native generics instead of `.proto`/`.msg` files, and (per the project's design intent) a hybrid transport that stays local when it can and hands off to a sidecar daemon, `spined`, when it can't.
 
+Two implementations exist today — [spine-go](/docs/spine/go/intro) and [spine-zig](/docs/spine/zig/intro) — and they're wire-compatible: a Go publisher can talk to a Zig subscriber and vice versa, verified as separate live processes for every entity type, not just assumed. Get started with either one, or see [Getting Started](#getting-started) below for both.
+
 ## What's actually implemented today
 
 It's worth being precise about this, because the ambition and the current state are different things:
@@ -31,13 +33,18 @@ Every message — key and value alike — is encoded with [MAD](/docs/spine/mad/
 
 | Package | Language | Status |
 |---|---|---|
-| [spine-go](/docs/spine/go/intro) | Go | Primary implementation — the one to read to understand the real protocol |
-| [spine-py](/docs/spine/py/intro) | Python | Real, but a CFFI bridge over a *compiled build of Spine's old, retired KCP/mDNS backend* — not interoperable with current `spine-go`/`spined` |
-| spine-zig | Zig | Early/partial — a single in-progress `Service` implementation, not yet documented as its own page |
+| [spine-go](/docs/spine/go/intro) | Go | Primary implementation, tagged `v0.1.0` |
+| [spine-zig](/docs/spine/zig/intro) | Zig | Full peer to spine-go — node registration, Pub/Sub, RPC, reconnect-on-drop — also tagged `v0.1.0`, cross-verified against spine-go in both directions |
 | `spine` (CLI) | — | Not built — a one-line spec exists ("create a namespace, add a peer, get system info") matching the admin-operations design discussed for `spined`, but no code |
-| [spine-cpp](/docs/spine/cpp/intro) | C++ | Not found in the codebase despite being named in the project proposal |
 
-Note the naming collision to watch for: "Spine" is this whole communication layer; `spine-go`/`spine-py`/`spine-zig` are language bindings; and `spine` (lowercase, no suffix) is specifically the planned **command-line tool** for talking to `spined` — a different thing from all of the above, not a fourth language binding.
+Note the naming collision to watch for: "Spine" is this whole communication layer; `spine-go`/`spine-zig` are language bindings; and `spine` (lowercase, no suffix) is specifically the planned **command-line tool** for talking to `spined` — a different thing from either, not a third language binding.
+
+## Getting started
+
+- [spine-go](/docs/spine/go/intro)
+- [spine-zig](/docs/spine/zig/intro)
+
+Both cover the same ground — creating a node, Pub/Sub, RPC — in each language's idiom. If you're picking one for a new node: `spine-go` has a slightly richer feature set (context-based call cancellation, sequential vs. threaded services); `spine-zig` is synchronous end-to-end and measurably lower-overhead per call as a result, at the cost of that same richness not existing yet.
 
 ## Architecture
 
@@ -52,7 +59,7 @@ graph LR
 
 ## See also
 
-- [spine-go](/docs/spine/go/intro) — API and usage
+- [spine-go](/docs/spine/go/intro) / [spine-zig](/docs/spine/zig/intro) — API and usage
 - [MAD](/docs/spine/mad/intro) — the wire format
 - [Architecture](/docs/architecture) — how Spine fits into the rest of PreciCore
 - [Troubleshooting](/docs/troubleshooting) — namespace and connection issues you'll actually hit

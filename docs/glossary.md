@@ -36,19 +36,19 @@ The number of independent axes along which a mechanical system can move. [Arctos
 
 ### Entity
 
-`spined`'s term for anything a node registers: a Service, Publisher, ServiceCaller, or Subscriber. Entities live as long as the node connection that registered them stays open — closing an entity object in application code (`Service.Close()`, etc.) does not currently tell `spined` to remove it; only a full node disconnect does. See [spine-go](/docs/spine/go/intro).
+`spined`'s term for anything a node registers: a Service, Publisher, ServiceCaller, or Subscriber. Entities live as long as the node connection that registered them stays open — there's no `Close()`/`deinit()` on an entity in either `spine-go` or `spine-zig` today (removed deliberately: an entity is meant to live as long as its node does). Only a full node disconnect removes one from `spined`'s registry. See [spine-go](/docs/spine/go/intro) / [spine-zig](/docs/spine/zig/intro).
 
 ---
 
 ### IMU (Inertial Measurement Unit)
 
-A sensor that measures specific force (accelerometer) and angular rate (gyroscope). A real iPhone IMU input node exists — it listens for UDP packets from an iPhone sensor-streaming app and computes a rotation-only delta transform — but it's built on Spine's old, retired transport. See [iPhone IMU](/docs/spine-nodes/input/iphone-imu/intro).
+A sensor that measures specific force (accelerometer) and angular rate (gyroscope). A real iPhone IMU input node exists — it listens for UDP packets from an iPhone sensor-streaming app and computes a rotation-only delta transform — running on the current Spine transport, part of the live input → kinematics → simulation pipeline. See [iPhone IMU](/docs/spine-nodes/input/iphone-imu/intro).
 
 ---
 
 ### Inverse Kinematics (IK)
 
-The mathematical problem of computing joint angles that place a robotic end-effector at a desired position and orientation, as opposed to *forward kinematics*, which computes position given joint angles. Two real solvers exist here: a Levenberg-Marquardt solver (`kinematic-engine`, Python, via `roboticstoolbox`'s `ikine_LM`) and a from-scratch [DLS](#dls-damped-least-squares) solver (`red`, Zig) with a more robust orientation-error metric. See [Kinematic Engine](/docs/spine-nodes/kinematics-engine/intro).
+The mathematical problem of computing joint angles that place a robotic end-effector at a desired position and orientation, as opposed to *forward kinematics*, which computes position given joint angles. `kinematic-engine` solves this via [`red`](/docs/spine-nodes/kinematics-engine/intro), a from-scratch [DLS](#dls-damped-least-squares) solver written in Zig with a robust orientation-error metric, replacing an earlier Python/`roboticstoolbox` solver that was capped at ~75 Hz. See [Kinematic Engine](/docs/spine-nodes/kinematics-engine/intro).
 
 ---
 
@@ -60,19 +60,19 @@ A recursive algorithm that estimates the true state of a system from noisy measu
 
 ### KCP / mDNS
 
-The transport and discovery mechanism of Spine's **previous, retired** design — reliable delivery over UDP (KCP) with zero-config peer discovery (mDNS), plus AES-GCM-encrypted namespaces. Real and it worked, per the project's own design notes, but was replaced by the current Unix-domain-socket design over performance (unnecessary network-stack overhead for same-machine nodes), mDNS discovery bugs, and cross-language tooling pain. `spine-py`'s `spineBridge.so` is a compiled artifact of this retired version — see [spine-py](/docs/spine/py/intro).
+The transport and discovery mechanism of Spine's **previous, retired** design — reliable delivery over UDP (KCP) with zero-config peer discovery (mDNS), plus AES-GCM-encrypted namespaces. Real and it worked, per the project's own design notes, but was replaced by the current Unix-domain-socket design over performance (unnecessary network-stack overhead for same-machine nodes), mDNS discovery bugs, and cross-language tooling pain.
 
 ---
 
 ### MAD (Serializer)
 
-Spine's binary serialization format: a reflection-driven, fixed-size-only codec (no strings, slices, or maps in the current Go/Zig implementations) with alphabetically-sorted struct fields and a type-fingerprint `Code()` used to validate that two ends of a connection agree on message shape. The Python `mad` package (used by `spine-py`) is a separate, older implementation that still supports variable-length types with a different wire-code scheme — a leftover from before the Go/Zig side dropped that support, not currently interoperable. See [MAD](/docs/spine/mad/intro).
+Spine's binary serialization format: a reflection-driven, fixed-size-only codec (no strings, slices, or maps) with alphabetically-sorted struct fields and a type-fingerprint `Code()` used to validate that two ends of a connection agree on message shape. Implemented in both Go (`mad-go`) and Zig (`mad.zig`, copied verbatim into `spine-zig` from `spined`), wire-compatible with each other. See [MAD](/docs/spine/mad/intro).
 
 ---
 
 ### MuJoCo
 
-Multi-Joint dynamics with Contact. An open-source physics engine developed by DeepMind, used in robotics research for its accurate contact dynamics. [CrackHead](/docs/spine-nodes/crack-head/intro) is a real MuJoCo simulation of the Arctos arm — built, but still on Spine's old, retired transport.
+Multi-Joint dynamics with Contact. An open-source physics engine developed by DeepMind, used in robotics research for its accurate contact dynamics. [CrackHead](/docs/spine-nodes/crack-head/intro) is a real MuJoCo simulation of the Arctos arm, written in Zig, driven live over the current Spine transport.
 
 ---
 
@@ -96,7 +96,7 @@ A messaging pattern where publishers emit values under a name (a "topic," identi
 
 ### RCM (Remote Center of Motion)
 
-A kinematic constraint that forces a robotic arm to pivot around a fixed point in space — here, the entry point through the cornea — so the tool can be reoriented without moving the incision site. Not present in either current kinematics implementation (Python or `red`) — both solve generic pose targets without an explicit pivot constraint. See [Kinematic Engine](/docs/spine-nodes/kinematics-engine/intro).
+A kinematic constraint that forces a robotic arm to pivot around a fixed point in space — here, the entry point through the cornea — so the tool can be reoriented without moving the incision site. Not present in `red`'s solver — it solves generic pose targets without an explicit pivot constraint. See [Kinematic Engine](/docs/spine-nodes/kinematics-engine/intro).
 
 ---
 
@@ -126,7 +126,7 @@ PreciCore's communication layer: pub/sub and RPC over Unix domain sockets on the
 
 ### Spine Node
 
-Any process that connects to Spine via `CreateNode`. A node can register Services, ServiceCallers, Publishers, and Subscribers. See [spine-go](/docs/spine/go/intro).
+Any process that connects to Spine via `CreateNode` (Go) or `Node.init` (Zig). A node can register Services, ServiceCallers, Publishers, and Subscribers. See [spine-go](/docs/spine/go/intro) / [spine-zig](/docs/spine/zig/intro).
 
 ---
 

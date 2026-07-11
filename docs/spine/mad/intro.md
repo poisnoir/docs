@@ -34,17 +34,16 @@ An earlier version of MAD supported strings, slices, and maps. That support was 
 
 Practical implication: if you need a "string" field in a message today, you're modeling it as a fixed-size byte array with an explicit length field, the same way Spine encodes node/entity names internally (`{ data: [64]u8, len: u8 }`), not as a dynamically-sized value.
 
-## Implementations — currently out of sync
+## Implementations
 
-MAD exists in three places, and they are **not** all wire-compatible with each other today:
+MAD exists in two places today, and they're wire-compatible — verified as separate live processes, not just assumed:
 
-| Implementation | Location | Variable-length support | Wire code scheme |
-|---|---|---|---|
-| `mad-go` | `github.com/poisnoir/mad-go`, used by spine-go | None (removed) | letter-prefixed (`b14`, `f...z`, ...) |
-| `mad.zig` | vendored inside `spined` and `spine-zig` | None (removed) | same scheme as `mad-go` |
-| `mad` (Python) | installed alongside `spine_py` in the kinematics-engine venv | **Still supports** `string`, `dataclass`, fixed `tuple[T, N]`, and `dict[K, V]` | digit-prefixed (`"0"`–`"8"`) |
+| Implementation | Location | Wire code scheme |
+|---|---|---|
+| `mad-go` | `github.com/poisnoir/mad-go`, used by spine-go | letter-prefixed (`b14`, `f...z`, ...) |
+| `mad.zig` | vendored inside `spined`, copied verbatim into `spine-zig` | same scheme as `mad-go` |
 
-The Python package's docstring literally documents string and dict support with a 4-byte length prefix — a design the Go/Zig side dropped. This means a Python node and a Go/Zig node encoding "the same" message today are not guaranteed to produce the same bytes or the same `code()` fingerprint, even where the field types overlap. If you're wiring a Python node (like `kinematics-engine`) to a Go node, stick to primitive/fixed-array fields that exist unchanged on both sides, and don't assume a `code()` string computed on one side means anything on the other until this is reconciled.
+`spine-zig` deliberately reuses `spined`'s own `mad.zig` rather than maintaining a separate implementation, which is a large part of why the two stay compatible without extra effort.
 
 ## Usage (Go)
 
@@ -69,8 +68,32 @@ err = m.Decode(buf, &out)
 
 You typically don't call `mad.NewMad` directly in application code — `Service`, `ServiceCaller`, `Publisher`, and `Subscriber` all construct their own key/value serializers internally from your generic type parameters.
 
+## Usage (Zig)
+
+Same idea, but `comptime`-driven instead of reflection-driven — the type itself is a compile-time argument, not a runtime value wrapped in a struct:
+
+```zig
+const mad = @import("mad.zig");
+
+const ControlMsg = struct {
+    x: f32,
+    y: f32,
+    z: f32,
+    buttons: u8,
+};
+
+const size = mad.getRequiredSize(ControlMsg);
+
+var buf: [size]u8 = undefined;
+_ = mad.encode(ControlMsg, .{ .x = 1.0, .y = -0.5, .z = 0.0, .buttons = 0b0001 }, &buf);
+
+var out: ControlMsg = undefined;
+_ = mad.decode(ControlMsg, &out, &buf);
+```
+
+As in Go, you don't normally call this directly — `spine_zig`'s `Node.publish`/`subscribe`/`newService`/`newServiceCaller` all resolve `getRequiredSize`/`encode`/`decode` for your `comptime K`/`V` type parameters internally.
+
 ## See also
 
-- [spine-go](/docs/spine/go/intro) — uses MAD for all message encoding
-- [spine-py](/docs/spine/py/intro) — the Python side of the compatibility gap above
+- [spine-go](/docs/spine/go/intro) / [spine-zig](/docs/spine/zig/intro) — both use MAD for all message encoding
 - [Spine Overview](/docs/spine/intro) — how messages travel between nodes
